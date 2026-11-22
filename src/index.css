@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+@theme {
+  --font-heading: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-sans: "Inter", system-ui, sans-serif;
+
+  --color-brand-primary: #e53935;
+  --color-brand-dark: #c62828;
+  --color-brand-light: #fff1f0;
+  --color-brand-bg: #f8f9fb;
+  --color-brand-card: #ffffff;
+  --color-brand-text: #202124;
+  --color-brand-muted: #6b7280;
+  --color-brand-border: #e5e7eb;
+  --color-brand-success: #16a34a;
+  --color-brand-warning: #f59e0b;
+  --color-brand-danger: #dc2626;
+  --color-brand-info: #2563eb;
+}
+
+@layer base {
+  * {
+    border-color: #e5e7eb;
+  }
+
+  body {
+    background-color: #f8f9fb;
+    color: #202124;
+    font-family: "Inter", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    margin: 0;
+    padding: 0;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-heading {
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  }
+}
+
+/* Subtle modern card styling */
+.modern-card {
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 1rem;
+  box-shadow:
+    0 1px 3px 0 rgba(0, 0, 0, 0.03),
+    0 1px 2px -1px rgba(0, 0, 0, 0.03);
+  transition: all 0.2s ease;
+}
+
+.modern-card:hover {
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.05),
+    0 2px 4px -2px rgba(0, 0, 0, 0.03);
+}
+
+/* Custom scrollbar for modern feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f3f5;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
