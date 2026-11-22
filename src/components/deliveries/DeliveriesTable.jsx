@@ -3,6 +3,7 @@ import {
   Eye,
   RefreshCw,
   Edit,
+  Trash2,
   Tv,
   Wind,
   Snowflake,
@@ -35,6 +36,10 @@ const DeliveriesTable = ({
   onViewDetails,
   onUpdateStatus,
   onEdit,
+  onDelete = null,
+  selectable = false,
+  selectedIds = [],
+  onSelectionChange = null,
   loading = false,
   emptyMessage = "No delivery records found",
   emptyDescription = "There are no deliveries matching the selected criteria.",
@@ -44,6 +49,33 @@ const DeliveriesTable = ({
   const { getPaymentStatus } = usePaymentStatus();
   const [sortKey, setSortKey] = useState("id");
   const [sortDir, setSortDir] = useState("desc");
+
+  const isAllSelected = useMemo(() => {
+    if (!selectable || !deliveries.length) return false;
+    return deliveries.every((d) => selectedIds.includes(d.id));
+  }, [selectable, deliveries, selectedIds]);
+
+  const handleToggleSelectAll = (e) => {
+    e.stopPropagation();
+    if (!onSelectionChange) return;
+    if (isAllSelected) {
+      const currentKeys = new Set(deliveries.map((d) => d.id));
+      onSelectionChange(selectedIds.filter((id) => !currentKeys.has(id)));
+    } else {
+      const combined = new Set([...selectedIds, ...deliveries.map((d) => d.id)]);
+      onSelectionChange(Array.from(combined));
+    }
+  };
+
+  const handleToggleRowSelect = (e, rowId) => {
+    e.stopPropagation();
+    if (!onSelectionChange) return;
+    if (selectedIds.includes(rowId)) {
+      onSelectionChange(selectedIds.filter((id) => id !== rowId));
+    } else {
+      onSelectionChange([...selectedIds, rowId]);
+    }
+  };
 
   const handleSort = (key) => {
     if (sortKey === key) {
@@ -105,6 +137,17 @@ const DeliveriesTable = ({
         <table className="w-full text-left text-sm border-collapse min-w-[1100px]">
           <thead>
             <tr className="bg-[#FAFBFD] border-b border-[#E5E7EB] text-[11px] font-bold text-[#6B7280] uppercase tracking-wider select-none">
+              {selectable && (
+                <th className="px-3 py-3.5 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    onChange={handleToggleSelectAll}
+                    className="w-4 h-4 rounded text-[#E53935] focus:ring-[#E53935] border-gray-300 cursor-pointer"
+                    aria-label="Select all deliveries"
+                  />
+                </th>
+              )}
               {/* 1. DELIVERY ID */}
               <th
                 onClick={() => handleSort("id")}
@@ -313,8 +356,19 @@ const DeliveriesTable = ({
               return (
                 <tr
                   key={row.id}
-                  className="group hover:bg-[#FFF8F7] transition-colors duration-150"
+                  className={`group hover:bg-[#FFF8F7] transition-colors duration-150 ${selectedIds.includes(row.id) ? "bg-red-50/40" : ""}`}
                 >
+                  {selectable && (
+                    <td className="px-3 py-3.5 align-middle text-center" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(row.id)}
+                        onChange={(e) => handleToggleRowSelect(e, row.id)}
+                        className="w-4 h-4 rounded text-[#E53935] focus:ring-[#E53935] border-gray-300 cursor-pointer"
+                        aria-label={`Select delivery ${row.id}`}
+                      />
+                    </td>
+                  )}
                   {/* 1. DELIVERY ID */}
                   <td className="px-3.5 py-3.5 align-middle">
                     <span className="font-mono font-bold text-[#202124] text-[13px]">
@@ -437,6 +491,18 @@ const DeliveriesTable = ({
                           <Edit className="w-4 h-4" />
                         </button>
                       )}
+
+                      {onDelete && (
+                        <button
+                          type="button"
+                          onClick={() => onDelete(row)}
+                          className="p-1.5 text-[#6B7280] hover:text-[#DC2626] hover:bg-red-50 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-red-200"
+                          title="Delete Delivery"
+                          aria-label={`Delete delivery ${row.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -462,11 +528,20 @@ const DeliveriesTable = ({
             <div key={row.id} className="p-4 space-y-3 hover:bg-[#FFF8F7]/50">
               {/* Header: ID, Invoice & Date */}
               <div className="flex items-center justify-between">
-                <div>
+                <div className="flex items-center gap-2">
+                  {selectable && (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(row.id)}
+                      onChange={(e) => handleToggleRowSelect(e, row.id)}
+                      className="w-4 h-4 rounded text-[#E53935] focus:ring-[#E53935] border-gray-300 cursor-pointer"
+                      aria-label={`Select delivery ${row.id}`}
+                    />
+                  )}
                   <span className="font-mono font-bold text-[#202124] text-xs">
                     {row.id}
                   </span>
-                  <span className="text-[11px] text-[#6B7280] font-mono ml-2">
+                  <span className="text-[11px] text-[#6B7280] font-mono ml-1">
                     {row.invoiceNumber}
                   </span>
                 </div>
@@ -555,6 +630,15 @@ const DeliveriesTable = ({
                     className="px-2.5 py-1 text-xs rounded-lg border border-[#E53935]/20 text-[#E53935] bg-[#FFF1F0] hover:bg-[#FFF1F0]/80 flex items-center gap-1"
                   >
                     <Edit className="w-3.5 h-3.5" /> Edit
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    type="button"
+                    onClick={() => onDelete(row)}
+                    className="px-2.5 py-1 text-xs rounded-lg border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
                   </button>
                 )}
               </div>

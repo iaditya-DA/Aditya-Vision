@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { FileCheck2, Check, X } from "lucide-react";
+import { FileCheck2, Check, X, Trash2 } from "lucide-react";
 import FormPage from "../../components/layout/FormPage";
 import Button from "../../components/common/Button";
 import StatusBadge from "../../components/common/StatusBadge";
@@ -11,13 +11,14 @@ import { useAuth } from "../../hooks/useAuth";
 import { usePayments } from "../../hooks/usePayments";
 import { useToast } from "../../hooks/useToast";
 import { formatCurrency, formatDate } from "../../utils/formatters";
+import { deletePaymentRequest } from "../../services/deleteService";
 
 const PaymentRequestDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { isSuperAdmin } = useAuth();
-  const { paymentRequests, approvePaymentRequest, rejectPaymentRequest } =
+  const { user: currentUser, isSuperAdmin } = useAuth();
+  const { paymentRequests, approvePaymentRequest, rejectPaymentRequest, refreshPayments } =
     usePayments();
 
   const request = paymentRequests?.find((r) => r.id === id);
@@ -26,6 +27,21 @@ const PaymentRequestDetailPage = () => {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [rejectError, setRejectError] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteRequest = async ({ reason } = {}) => {
+    setIsDeleting(true);
+    try {
+      await deletePaymentRequest(request.id, currentUser, reason);
+      toast.success(`Payment request #${request.id} deleted successfully`);
+      if (refreshPayments) await refreshPayments();
+      navigate("/payment-requests");
+    } catch (err) {
+      toast.error(err.message || "Failed to delete payment request");
+      setIsDeleting(false);
+    }
+  };
 
   const handleApprove = () => {
     approvePaymentRequest(id);
@@ -81,28 +97,40 @@ const PaymentRequestDetailPage = () => {
         backTo="/payment-requests"
         backLabel="Payment Requests"
         actions={
-          isSuperAdmin && request.status === "Pending" ? (
-            <>
+          <div className="flex items-center gap-2">
+            {isSuperAdmin && request.status === "Pending" && (
+              <>
+                <Button
+                  variant="primary"
+                  icon={Check}
+                  onClick={() => setApproveOpen(true)}
+                >
+                  Approve
+                </Button>
+                <Button
+                  variant="danger"
+                  icon={X}
+                  onClick={() => {
+                    setRejectReason("");
+                    setRejectError("");
+                    setRejectOpen(true);
+                  }}
+                >
+                  Reject
+                </Button>
+              </>
+            )}
+            {isSuperAdmin && (
               <Button
-                variant="primary"
-                icon={Check}
-                onClick={() => setApproveOpen(true)}
+                variant="outline"
+                icon={Trash2}
+                onClick={() => setDeleteDialogOpen(true)}
+                className="text-[#DC2626] border-[#FCA5A5] hover:bg-red-50"
               >
-                Approve
+                Delete
               </Button>
-              <Button
-                variant="danger"
-                icon={X}
-                onClick={() => {
-                  setRejectReason("");
-                  setRejectError("");
-                  setRejectOpen(true);
-                }}
-              >
-                Reject
-              </Button>
-            </>
-          ) : null
+            )}
+          </div>
         }
       >
         <div className="bg-white rounded-2xl border border-[#E5E7EB] shadow-2xs p-6">
@@ -181,6 +209,20 @@ const PaymentRequestDetailPage = () => {
           </div>
         </Modal>
       )}
+
+      {/* Delete Payment Request Confirm Dialog */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        title="Delete Payment Request"
+        message="Are you sure you want to permanently delete this payment request? This action deletes the requisition from Firestore."
+        recordType="Payment Requisition"
+        recordTitle={`#${request.id} — ${request.driverName} (${formatCurrency(request.requestedAmount)})`}
+        confirmText="Delete Request"
+        variant="danger"
+        loading={isDeleting}
+        onConfirm={handleDeleteRequest}
+        onCancel={() => setDeleteDialogOpen(false)}
+      />
     </>
   );
 };

@@ -8,6 +8,7 @@ import {
   UserX,
   UserCheck,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import FormPage from "../../components/layout/FormPage";
 import Button from "../../components/common/Button";
@@ -23,12 +24,16 @@ import {
 } from "../../services/driverService";
 import { getDriverLedgerData } from "../../services/paymentService";
 import { getDeliveriesPaged } from "../../services/deliveryService";
+import {
+  deleteDriver,
+  checkDriverDeletionSafety,
+} from "../../services/deleteService";
 
 const DriverDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { isSuperAdmin, hasPermission } = useAuth();
+  const { user: currentUser, isSuperAdmin, hasPermission } = useAuth();
   const canViewBank = isSuperAdmin || hasPermission("drivers.viewBankDetails");
 
   const [driver, setDriver] = useState(null);
@@ -47,6 +52,9 @@ const DriverDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("deliveries");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [safetyInfo, setSafetyInfo] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadAllData = useCallback(async () => {
     setLoading(true);
@@ -85,6 +93,36 @@ const DriverDetailPage = () => {
       await loadAllData();
     } catch (err) {
       toast.error(err.message || "Failed to update driver status");
+    }
+  };
+
+  const handleInitiateDelete = async () => {
+    try {
+      const safety = await checkDriverDeletionSafety(driver.id);
+      setSafetyInfo(safety);
+      setDeleteDialogOpen(true);
+    } catch (err) {
+      console.error(err);
+      setSafetyInfo({ canHardDelete: false, reason: "Error evaluating safety" });
+      setDeleteDialogOpen(true);
+    }
+  };
+
+  const handleConfirmDelete = async ({ reason } = {}) => {
+    setIsDeleting(true);
+    try {
+      const res = await deleteDriver(driver.id, currentUser, { reason });
+      if (res.action === "archived") {
+        toast.success(
+          `${driver.name} has been archived to preserve historical delivery records.`
+        );
+      } else {
+        toast.success(`${driver.name} has been deleted permanently.`);
+      }
+      navigate("/drivers");
+    } catch (err) {
+      toast.error(err.message || "Failed to delete driver");
+      setIsDeleting(false);
     }
   };
 
@@ -150,14 +188,26 @@ const DriverDetailPage = () => {
           )}
 
           {isSuperAdmin && (
-            <Button
-              variant={driver.status === "Active" ? "danger" : "secondary"}
-              size="sm"
-              icon={driver.status === "Active" ? UserX : UserCheck}
-              onClick={() => setConfirmOpen(true)}
-            >
-              {driver.status === "Active" ? "Deactivate" : "Activate"}
-            </Button>
+            <>
+              <Button
+                variant={driver.status === "Active" ? "danger" : "secondary"}
+                size="sm"
+                icon={driver.status === "Active" ? UserX : UserCheck}
+                onClick={() => setConfirmOpen(true)}
+              >
+                {driver.status === "Active" ? "Deactivate" : "Activate"}
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                icon={Trash2}
+                onClick={handleInitiateDelete}
+                className="text-[#DC2626] border-[#FCA5A5] hover:bg-red-50"
+              >
+                Delete / Archive
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -385,6 +435,28 @@ const DriverDetailPage = () => {
             : "Activating this driver makes them selectable for trips."
         }
         confirmText={driver.status === "Active" ? "Deactivate" : "Activate"}
+      />
+
+      {/* Delete / Archive Confirmation Dialog */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        title={
+          safetyInfo?.canHardDelete
+            ? "Delete Driver Record"
+            : "Archive Driver (Safeguard Records)"
+        }
+        message={
+          safetyInfo?.canHardDelete
+            ? "Are you sure you want to permanently delete this driver? All registration and bank details will be purged from Firestore."
+            : `This driver has ${safetyInfo?.deliveryCount || 0} deliveries and ${safetyInfo?.paymentCount || 0} financial ledger records. To safeguard audit integrity, this driver will be safely archived (soft-deleted).`
+        }
+        recordType="Fleet Driver"
+        recordTitle={`${driver.name} (${driver.code || driver.id})`}
+        confirmText={safetyInfo?.canHardDelete ? "Delete Driver" : "Archive Driver Safely"}
+        variant="danger"
+        loading={isDeleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteDialogOpen(false)}
       />
     </FormPage>
   );

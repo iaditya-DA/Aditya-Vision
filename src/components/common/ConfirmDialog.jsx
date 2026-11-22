@@ -27,7 +27,9 @@ const ConfirmDialog = ({
 
   useEffect(() => {
     if (isOpen) {
-      setKeywordInput("");
+      Promise.resolve().then(() => {
+        setKeywordInput("");
+      });
     }
   }, [isOpen]);
 

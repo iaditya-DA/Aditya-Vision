@@ -15,6 +15,7 @@ import {
   X,
   LogOut,
   User,
+  Database,
 } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import { subscribeUserNotifications, markNotificationAsRead, markAllNotificationsAsRead } from "../../services/notificationService";
@@ -153,6 +154,12 @@ const Navbar = () => {
       icon: SettingsIcon,
       description: "Business profile, policies & credentials",
     },
+    isSuperAdmin && {
+      name: "Data Management",
+      path: "/settings/data-management",
+      icon: Database,
+      description: "Archive, purge & audit system records",
+    },
   ].filter(Boolean);
 
   // Active state helpers
@@ -163,9 +170,12 @@ const Navbar = () => {
   const isFinanceActive = ["/payment-requests", "/payment-history"].includes(
     location.pathname,
   );
-  const isAdminActive = ["/users", "/reports", "/settings"].includes(
-    location.pathname,
-  );
+  const isAdminActive = [
+    "/users",
+    "/reports",
+    "/settings",
+    "/settings/data-management",
+  ].some((p) => location.pathname.startsWith(p));
 
   const toggleDropdown = (key) => {
     setOpenDropdown((prev) => (prev === key ? null : key));

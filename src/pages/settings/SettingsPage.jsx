@@ -18,6 +18,7 @@ import {
   Info,
   ShieldCheck,
   Check,
+  Database,
 } from "lucide-react";
 import PageHeader from "../../components/layout/PageHeader";
 import Button from "../../components/common/Button";
@@ -84,7 +85,7 @@ const SETTINGS_SECTIONS = [
 ];
 
 const SettingsPage = () => {
-  const { user } = useAuth();
+  const { user, isSuperAdmin } = useAuth();
   const toast = useToast();
   const fileInputRef = useRef(null);
 
@@ -388,6 +389,28 @@ const SettingsPage = () => {
               </button>
             );
           })}
+
+          {isSuperAdmin && (
+            <div className="pt-3 border-t border-[#E5E7EB]">
+              <Link
+                to="/settings/data-management"
+                className="w-full text-left px-3.5 py-3 rounded-xl bg-red-50/60 hover:bg-red-50 text-[#E53935] border border-red-200 transition-all flex items-start gap-3 cursor-pointer group"
+              >
+                <div className="p-1.5 rounded-lg shrink-0 mt-0.5 bg-[#E53935] text-white">
+                  <Database className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold truncate">Data Management</span>
+                    <ExternalLink className="w-3.5 h-3.5 text-[#E53935] opacity-70 group-hover:opacity-100" />
+                  </div>
+                  <p className="text-[11px] text-[#E53935]/80 line-clamp-1 mt-0.5 leading-tight">
+                    Archive, purge & audit records
+                  </p>
+                </div>
+              </Link>
+            </div>
+          )}
 
           <div className="pt-3 border-t border-[#E5E7EB] px-3 py-2 text-xs text-[#6B7280]">
             <span className="block font-semibold text-[#202124]">Aditya Vision OS</span>

@@ -435,15 +435,34 @@ export async function deleteSavedReportsBulk(reportIds, user, reason = "") {
 /**
  * Delete notification document
  */
-export async function deleteNotification(notifId, user) {
+export async function deleteNotification(notifId, user, reason = "") {
   if (!notifId) return;
   await deleteDoc(doc(db, "notifications", notifId));
+  if (user) {
+    await logAuditAction({
+      action: "DELETE_SINGLE",
+      collection: "notifications",
+      documentId: notifId,
+      performedBy: user,
+      reason: reason || "User notification cleared",
+    });
+  }
 }
 
-export async function deleteNotificationsBulk(notifIds, user) {
+export async function deleteNotificationsBulk(notifIds, user, reason = "") {
   if (!Array.isArray(notifIds) || notifIds.length === 0) return 0;
   const batch = writeBatch(db);
   notifIds.forEach((id) => batch.delete(doc(db, "notifications", id)));
   await batch.commit();
+  if (user) {
+    await logAuditAction({
+      action: "DELETE_BULK",
+      collection: "notifications",
+      documentId: `bulk_${notifIds.length}`,
+      performedBy: user,
+      reason: reason || `Bulk cleared ${notifIds.length} notifications`,
+      metadata: { count: notifIds.length },
+    });
+  }
   return notifIds.length;
 }

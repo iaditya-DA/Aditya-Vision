@@ -12,6 +12,8 @@ import {
   Truck,
   Check,
   X,
+  Trash2,
+  CheckSquare,
 } from "lucide-react";
 import PageHeader from "../../components/layout/PageHeader";
 import Button from "../../components/common/Button";
@@ -28,21 +30,32 @@ import { usePayments } from "../../hooks/usePayments";
 import { useToast } from "../../hooks/useToast";
 import { formatCurrency, formatDate } from "../../utils/formatters";
 import { getDriversPaged, reviewDriverApproval } from "../../services/driverService";
+import {
+  deletePaymentRequest,
+  deletePaymentRequestsBulk,
+} from "../../services/deleteService";
 
 const PAGE_SIZE = 10;
 
 const PaymentRequests = () => {
   const navigate = useNavigate();
-  const { isSuperAdmin, hasPermission } = useAuth();
+  const { user: currentUser, isSuperAdmin, hasPermission } = useAuth();
   const {
     paymentRequests = [],
     approvePaymentRequest,
     rejectPaymentRequest,
+    refreshPayments,
   } = usePayments();
 
   const toast = useToast();
 
   const [drivers, setDrivers] = useState([]);
+
+  // Selection & Delete state
+  const [selectedRequestIds, setSelectedRequestIds] = useState([]);
+  const [requestToDelete, setRequestToDelete] = useState(null);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadDrivers = useCallback(async () => {
     try {
@@ -97,6 +110,38 @@ const PaymentRequests = () => {
       return matchSearch && matchStatus && matchFrom && matchTo;
     });
   }, [paymentRequests, search, statusFilter, dateFrom, dateTo]);
+
+  const handleConfirmDeleteSingle = async ({ reason } = {}) => {
+    if (!requestToDelete) return;
+    setIsDeleting(true);
+    try {
+      await deletePaymentRequest(requestToDelete.id, currentUser, reason);
+      toast.success(`Payment request #${requestToDelete.id} deleted successfully`);
+      setRequestToDelete(null);
+      setSelectedRequestIds((prev) => prev.filter((id) => id !== requestToDelete.id));
+      await refreshPayments();
+    } catch (err) {
+      toast.error(err.message || "Failed to delete payment request");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleConfirmBulkDelete = async ({ reason } = {}) => {
+    if (!selectedRequestIds.length) return;
+    setIsDeleting(true);
+    try {
+      const result = await deletePaymentRequestsBulk(selectedRequestIds, currentUser, reason);
+      setSelectedRequestIds([]);
+      setBulkDeleteDialogOpen(false);
+      toast.success(`Deleted ${result.count} payment requests`);
+      await refreshPayments();
+    } catch (err) {
+      toast.error(err.message || "Bulk deletion failed");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const totalPages = Math.ceil(filteredRequests.length / PAGE_SIZE) || 1;
   const paginatedRequests = filteredRequests.slice(
@@ -229,6 +274,16 @@ const PaymentRequests = () => {
               </button>
             </>
           )}
+          {isSuperAdmin && (
+            <button
+              type="button"
+              onClick={() => setRequestToDelete(row)}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-[#DC2626] hover:bg-red-50 transition-colors"
+              title="Delete Requisition"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
       ),
     },
@@ -356,12 +411,43 @@ const PaymentRequests = () => {
             )}
           </div>
 
+          {/* Bulk Selection Bar */}
+          {isSuperAdmin && selectedRequestIds.length > 0 && (
+            <div className="bg-[#FFF1F0] border border-[#FCA5A5] rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#E53935]">
+                <CheckSquare className="w-5 h-5 text-[#E53935]" />
+                <span>Selected: {selectedRequestIds.length} Payment Requests</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  icon={X}
+                  onClick={() => setSelectedRequestIds([])}
+                >
+                  Clear
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  icon={Trash2}
+                  onClick={() => setBulkDeleteDialogOpen(true)}
+                >
+                  Delete Selected ({selectedRequestIds.length})
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Table */}
           <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden shadow-2xs">
             <DataTable
               columns={columns}
               data={paginatedRequests}
               keyField="id"
+              selectable={isSuperAdmin}
+              selectedIds={selectedRequestIds}
+              onSelectionChange={setSelectedRequestIds}
             />
             <Pagination
               currentPage={currentPage}
@@ -724,6 +810,41 @@ const PaymentRequests = () => {
           </div>
         </Modal>
       )}
+
+      {/* Delete Single Payment Request Confirm Dialog */}
+      <ConfirmDialog
+        open={Boolean(requestToDelete)}
+        title="Delete Payment Request"
+        message="Are you sure you want to delete this payment request? The requisition will be permanently removed from Firestore."
+        recordType="Payment Requisition"
+        recordTitle={
+          requestToDelete
+            ? `#${requestToDelete.id} — ${requestToDelete.driverName} (${formatCurrency(requestToDelete.requestedAmount)})`
+            : ""
+        }
+        confirmText="Delete Request"
+        cancelText="Cancel"
+        variant="danger"
+        loading={isDeleting}
+        onConfirm={handleConfirmDeleteSingle}
+        onCancel={() => setRequestToDelete(null)}
+      />
+
+      {/* Bulk Delete Payment Requests Dialog */}
+      <ConfirmDialog
+        open={bulkDeleteDialogOpen}
+        title="Confirm Bulk Deletion of Payment Requests"
+        message="You are about to permanently purge multiple payment requisitions from the system. This cannot be undone."
+        recordType="Payment Requisitions"
+        selectedCount={selectedRequestIds.length}
+        requireKeyword="DELETE"
+        confirmText={`Delete ${selectedRequestIds.length} Requests`}
+        cancelText="Cancel"
+        variant="danger"
+        loading={isDeleting}
+        onConfirm={handleConfirmBulkDelete}
+        onCancel={() => setBulkDeleteDialogOpen(false)}
+      />
     </div>
   );
 };

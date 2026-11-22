@@ -11,27 +11,32 @@ import {
   Clock,
   Loader2,
   Calculator,
+  Trash2,
 } from "lucide-react";
 import FormPage from "../../components/layout/FormPage";
 import Button from "../../components/common/Button";
 import StatusBadge from "../../components/common/StatusBadge";
+import ConfirmDialog from "../../components/common/ConfirmDialog";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../hooks/useToast";
 import { usePaymentStatus } from "../../hooks/usePaymentStatus";
 import { formatCurrency, formatDate } from "../../utils/formatters";
 import { getDeliveryById } from "../../services/deliveryService";
 import { recomputeDeliveryPaymentSummary } from "../../services/paymentService";
+import { deleteDelivery } from "../../services/deleteService";
 
 const DeliveryDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { isSuperAdmin } = useAuth();
+  const { user: currentUser, isSuperAdmin } = useAuth();
   const { getPaymentStatus } = usePaymentStatus();
 
   const [delivery, setDelivery] = useState(null);
   const [loading, setLoading] = useState(true);
   const [recomputing, setRecomputing] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadDelivery = useCallback(async () => {
     setLoading(true);
@@ -62,6 +67,18 @@ const DeliveryDetailPage = () => {
       toast.error(err.message || "Failed to recompute payment summary");
     } finally {
       setRecomputing(false);
+    }
+  };
+
+  const handleDelete = async ({ reason } = {}) => {
+    setIsDeleting(true);
+    try {
+      await deleteDelivery(delivery.id, currentUser, reason);
+      toast.success(`Delivery #${delivery.id} deleted successfully`);
+      navigate("/deliveries");
+    } catch (err) {
+      toast.error(err.message || "Failed to delete delivery");
+      setIsDeleting(false);
     }
   };
 
@@ -146,16 +163,28 @@ const DeliveryDetailPage = () => {
           </Button>
 
           {isSuperAdmin && (
-            <Button
-              variant="outline"
-              size="sm"
-              icon={Calculator}
-              loading={recomputing}
-              onClick={handleRecompute}
-              title="Recalculate payment totals from live payments"
-            >
-              Recompute Summary
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                icon={Calculator}
+                loading={recomputing}
+                onClick={handleRecompute}
+                title="Recalculate payment totals from live payments"
+              >
+                Recompute Summary
+              </Button>
+
+              <Button
+                variant="danger"
+                size="sm"
+                icon={Trash2}
+                onClick={() => setDeleteDialogOpen(true)}
+                title="Delete delivery permanently"
+              >
+                Delete
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -370,6 +399,20 @@ const DeliveryDetailPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Delete Confirm Dialog */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        title="Delete Delivery Order"
+        message="Are you sure you want to permanently delete this delivery order? This action removes the order from Firestore."
+        recordType="Delivery Order"
+        recordTitle={`#${delivery.id} — ${delivery.customerName}`}
+        confirmText="Delete Order"
+        variant="danger"
+        loading={isDeleting}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteDialogOpen(false)}
+      />
     </FormPage>
   );
 };

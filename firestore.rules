@@ -108,18 +108,18 @@ service cloud.firestore {
       allow delete: if isSuperAdmin() || hasPermission('payments.voidPayments');
     }
 
-    // Payments collection (paymentHistory)
+    // Payments collection (paymentHistory) - Audit locked
     match /paymentHistory/{paymentId} {
       allow read: if isStaff();
       allow create: if isStaff() && (hasPermission('payments.create') || hasPermission('paymentHistory'));
       allow update: if isStaff() && (hasPermission('payments.edit') || hasPermission('paymentHistory'));
-      allow delete: if isSuperAdmin() || hasPermission('payments.voidPayments');
+      allow delete: if false; // Audit-locked: settlement transactions cannot be hard-deleted
     }
     match /payments/{paymentId} {
       allow read: if isStaff();
       allow create: if isStaff() && (hasPermission('payments.create') || hasPermission('payments'));
       allow update: if isStaff() && (hasPermission('payments.edit') || hasPermission('payments'));
-      allow delete: if isSuperAdmin() || hasPermission('payments.voidPayments');
+      allow delete: if false; // Audit-locked
     }
 
     // Notifications collection
@@ -133,6 +133,14 @@ service cloud.firestore {
     // Saved Reports collection
     match /savedReports/{reportId} {
       allow read, write: if isStaff();
+      allow delete: if isSuperAdmin() || hasPermission('reports');
+    }
+
+    // Audit Logs collection (Immutable: strictly append-only, read by Super Admin)
+    match /auditLogs/{logId} {
+      allow read: if isSuperAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
     }
   }
 }

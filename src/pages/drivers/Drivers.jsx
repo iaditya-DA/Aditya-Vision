@@ -14,6 +14,9 @@ import {
   FileSpreadsheet,
   FileText,
   ShieldAlert,
+  Trash2,
+  CheckSquare,
+  X,
 } from "lucide-react";
 import PageHeader from "../../components/layout/PageHeader";
 import Button from "../../components/common/Button";
@@ -38,14 +41,27 @@ import {
   exportToExcel,
   exportToPDF,
 } from "../../utils/exportUtils";
+import {
+  deleteDriver,
+  deleteDriversBulk,
+  checkDriverDeletionSafety,
+} from "../../services/deleteService";
 
 const Drivers = () => {
   const toast = useToast();
   const navigate = useNavigate();
-  const { isSuperAdmin, hasPermission } = useAuth();
+  const { user: currentUser, isSuperAdmin, hasPermission } = useAuth();
 
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Selection & Delete State
+  const [selectedDriverIds, setSelectedDriverIds] = useState([]);
+  const [driverToDelete, setDriverToDelete] = useState(null);
+  const [driverSafetyInfo, setDriverSafetyInfo] = useState(null);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [forcePermanent, setForcePermanent] = useState(false);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -285,6 +301,62 @@ const Drivers = () => {
     }
   };
 
+  const handleInitiateDelete = async (driver) => {
+    try {
+      const safety = await checkDriverDeletionSafety(driver.id);
+      setDriverSafetyInfo(safety);
+      setForcePermanent(false);
+      setDriverToDelete(driver);
+    } catch (err) {
+      console.error("Safety check error:", err);
+      setDriverSafetyInfo({ canHardDelete: false, reason: "Error checking safety" });
+      setDriverToDelete(driver);
+    }
+  };
+
+  const handleConfirmDeleteDriver = async ({ reason } = {}) => {
+    if (!driverToDelete) return;
+    setIsDeleting(true);
+    try {
+      const res = await deleteDriver(driverToDelete.id, currentUser, {
+        forcePermanent,
+        reason,
+      });
+      if (res.action === "archived") {
+        toast.success(
+          `${driverToDelete.name} has been archived to preserve historical delivery and payment records.`
+        );
+      } else {
+        toast.success(`${driverToDelete.name} was permanently removed.`);
+      }
+      setDriverToDelete(null);
+      setSelectedDriverIds((prev) => prev.filter((id) => id !== driverToDelete.id));
+      await loadDrivers();
+    } catch (err) {
+      toast.error(err.message || "Failed to delete driver");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleConfirmBulkDelete = async ({ reason } = {}) => {
+    if (!selectedDriverIds.length) return;
+    setIsDeleting(true);
+    try {
+      const result = await deleteDriversBulk(selectedDriverIds, currentUser, reason);
+      setSelectedDriverIds([]);
+      setBulkDeleteDialogOpen(false);
+      toast.success(
+        `Processed ${result.count} drivers (${result.archivedCount} archived, ${result.deletedCount} purged)`
+      );
+      await loadDrivers();
+    } catch (err) {
+      toast.error(err.message || "Bulk deletion failed");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const columns = [
     {
       key: "driver",
@@ -449,6 +521,17 @@ const Drivers = () => {
               )}
             </button>
           )}
+
+          {isSuperAdmin && (
+            <button
+              type="button"
+              onClick={() => handleInitiateDelete(row)}
+              className="p-1.5 rounded-lg text-[#6B7280] hover:text-[#DC2626] hover:bg-red-50 transition-colors"
+              title="Delete or Archive Driver"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
       ),
     },
@@ -548,6 +631,34 @@ const Drivers = () => {
         </div>
       </div>
 
+      {/* Bulk Selection Bar */}
+      {isSuperAdmin && selectedDriverIds.length > 0 && (
+        <div className="bg-[#FFF1F0] border border-[#FCA5A5] rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-2 text-sm font-semibold text-[#E53935]">
+            <CheckSquare className="w-5 h-5 text-[#E53935]" />
+            <span>Selected: {selectedDriverIds.length} Drivers</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              icon={X}
+              onClick={() => setSelectedDriverIds([])}
+            >
+              Clear
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              icon={Trash2}
+              onClick={() => setBulkDeleteDialogOpen(true)}
+            >
+              Archive / Delete Selected ({selectedDriverIds.length})
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white rounded-2xl border border-[#E5E7EB] shadow-2xs overflow-hidden">
         {loading ? (
@@ -561,6 +672,9 @@ const Drivers = () => {
               columns={columns}
               data={paginatedDrivers}
               keyField="id"
+              selectable={isSuperAdmin}
+              selectedIds={selectedDriverIds}
+              onSelectionChange={setSelectedDriverIds}
               emptyMessage="No drivers registered yet."
               emptyDescription="Click 'Add Driver' above to onboard the first delivery driver into the fleet."
             />
@@ -746,6 +860,51 @@ const Drivers = () => {
           )}
         </div>
       </Modal>
+
+      {/* Driver Delete / Archive Confirm Dialog */}
+      <ConfirmDialog
+        open={Boolean(driverToDelete)}
+        title={
+          driverSafetyInfo?.canHardDelete
+            ? "Delete Driver Record"
+            : "Archive Driver (Safeguard History)"
+        }
+        message={
+          driverSafetyInfo?.canHardDelete
+            ? "Are you sure you want to permanently delete this driver? All registration and bank details will be purged from Firestore."
+            : `This driver has ${driverSafetyInfo?.deliveryCount || 0} deliveries and ${driverSafetyInfo?.paymentCount || 0} financial ledger records. To safeguard audit integrity, this driver will be safely archived (soft-deleted).`
+        }
+        recordType="Fleet Driver"
+        recordTitle={
+          driverToDelete
+            ? `${driverToDelete.name} (${driverToDelete.code || driverToDelete.id})`
+            : ""
+        }
+        confirmText={
+          driverSafetyInfo?.canHardDelete ? "Delete Driver" : "Archive Driver Safely"
+        }
+        cancelText="Cancel"
+        variant="danger"
+        loading={isDeleting}
+        onConfirm={handleConfirmDeleteDriver}
+        onCancel={() => setDriverToDelete(null)}
+      />
+
+      {/* Driver Bulk Delete / Archive Dialog */}
+      <ConfirmDialog
+        open={bulkDeleteDialogOpen}
+        title="Confirm Bulk Driver Deletion / Archiving"
+        message="You are about to process multiple driver records. Drivers with associated deliveries or payments will be safely archived, while unlinked drivers will be deleted. This operation updates real Firestore data."
+        recordType="Fleet Drivers"
+        selectedCount={selectedDriverIds.length}
+        requireKeyword="DELETE"
+        confirmText={`Process ${selectedDriverIds.length} Drivers`}
+        cancelText="Cancel"
+        variant="danger"
+        loading={isDeleting}
+        onConfirm={handleConfirmBulkDelete}
+        onCancel={() => setBulkDeleteDialogOpen(false)}
+      />
     </div>
   );
 };
