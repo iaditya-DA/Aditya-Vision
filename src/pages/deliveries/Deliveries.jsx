@@ -19,7 +19,8 @@ import { deleteDelivery, deleteDeliveriesBulk } from "../../services/deleteServi
 const Deliveries = () => {
   const toast = useToast();
   const navigate = useNavigate();
-  const { user: currentUser, isSuperAdmin } = useAuth();
+  const { user: currentUser, isSuperAdmin, hasPermission } = useAuth();
+  const canDelete = isSuperAdmin || hasPermission("deliveries.delete") || hasPermission("deliveries");
   const [searchParams] = useSearchParams();
   const querySearchParam = searchParams.get("search") || "";
 
@@ -236,7 +237,7 @@ const Deliveries = () => {
       </div>
 
       {/* Bulk Selection Bar */}
-      {isSuperAdmin && selectedDeliveryIds.length > 0 && (
+      {canDelete && selectedDeliveryIds.length > 0 && (
         <div className="bg-[#FFF1F0] border border-[#FCA5A5] rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
           <div className="flex items-center gap-2 text-sm font-semibold text-[#E53935]">
             <CheckSquare className="w-5 h-5 text-[#E53935]" />
@@ -274,13 +275,13 @@ const Deliveries = () => {
           <>
             <DeliveriesTable
               deliveries={paginatedDeliveries}
-              selectable={isSuperAdmin}
+              selectable={canDelete}
               selectedIds={selectedDeliveryIds}
               onSelectionChange={setSelectedDeliveryIds}
               onViewDetails={(row) => navigate(`/deliveries/${row.id}`)}
               onUpdateStatus={(row) => navigate(`/deliveries/${row.id}/status`)}
               onEdit={(row) => navigate(`/deliveries/${row.id}/edit`)}
-              onDelete={isSuperAdmin ? (row) => setSingleDeleteTarget(row) : null}
+              onDelete={canDelete ? (row) => setSingleDeleteTarget(row) : null}
               emptyMessage="No deliveries found"
               emptyDescription="No customer orders recorded yet. Click 'Create Delivery' to log the first shipment."
             />

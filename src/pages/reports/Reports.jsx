@@ -1948,8 +1948,12 @@ const Reports = () => {
                     </Button>
                     <button
                       type="button"
-                      onClick={() => handleDeleteSavedReport(rpt.id)}
-                      className="p-1.5 text-gray-400 hover:text-[#DC2626] rounded-lg transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        handleDeleteSavedReport(rpt.id);
+                      }}
+                      className="p-1.5 text-gray-400 hover:text-[#DC2626] rounded-lg transition-colors cursor-pointer"
                       title="Delete Template"
                     >
                       <Trash2 className="w-4 h-4" />

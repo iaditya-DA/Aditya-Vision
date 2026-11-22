@@ -29,7 +29,8 @@ const DeliveryDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { user: currentUser, isSuperAdmin } = useAuth();
+  const { user: currentUser, isSuperAdmin, hasPermission } = useAuth();
+  const canDelete = isSuperAdmin || hasPermission("deliveries.delete") || hasPermission("deliveries");
   const { getPaymentStatus } = usePaymentStatus();
 
   const [delivery, setDelivery] = useState(null);
@@ -164,26 +165,34 @@ const DeliveryDetailPage = () => {
 
           {isSuperAdmin && (
             <>
-              <Button
-                variant="outline"
-                size="sm"
-                icon={Calculator}
-                loading={recomputing}
-                onClick={handleRecompute}
-                title="Recalculate payment totals from live payments"
-              >
-                Recompute Summary
-              </Button>
+              {isSuperAdmin && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  icon={Calculator}
+                  loading={recomputing}
+                  onClick={handleRecompute}
+                  title="Recalculate payment totals from live payments"
+                >
+                  Recompute Summary
+                </Button>
+              )}
 
-              <Button
-                variant="danger"
-                size="sm"
-                icon={Trash2}
-                onClick={() => setDeleteDialogOpen(true)}
-                title="Delete delivery permanently"
-              >
-                Delete
-              </Button>
+              {canDelete && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  icon={Trash2}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setDeleteDialogOpen(true);
+                  }}
+                  title="Delete delivery permanently"
+                >
+                  Delete
+                </Button>
+              )}
             </>
           )}
         </div>

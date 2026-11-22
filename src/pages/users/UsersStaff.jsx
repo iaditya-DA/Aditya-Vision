@@ -49,6 +49,7 @@ const UsersStaff = () => {
   const toast = useToast();
 
   const canCreateStaff = isSuperAdmin || hasPermission("users.create");
+  const canDeleteUsers = isSuperAdmin || hasPermission("users.delete") || hasPermission("users");
 
   const [activeTab, setActiveTab] = useState("users"); // 'users' | 'roles'
   const [users, setUsers] = useState([]);
@@ -340,11 +341,15 @@ const UsersStaff = () => {
               </button>
             )}
 
-            {!isSelf && !isTargetSuper && isSuperAdmin && (
+            {!isSelf && !isTargetSuper && canDeleteUsers && (
               <button
                 type="button"
-                onClick={() => setDeleteDialog({ open: true, user: row })}
-                className="p-1.5 rounded-lg text-[#6B7280] hover:text-[#DC2626] hover:bg-red-50 transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  setDeleteDialog({ open: true, user: row });
+                }}
+                className="p-1.5 rounded-lg text-[#6B7280] hover:text-[#DC2626] hover:bg-red-50 transition-colors cursor-pointer"
                 title="Delete User Record"
               >
                 <Trash2 className="w-4 h-4" />
@@ -586,7 +591,7 @@ const UsersStaff = () => {
                 </div>
               </div>
 
-              {!role.isSystem && isSuperAdmin && (
+              {!role.isSystem && canDeleteUsers && (
                 <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E5E7EB]">
                   <Button
                     variant="secondary"
@@ -600,7 +605,11 @@ const UsersStaff = () => {
                     variant="danger"
                     size="sm"
                     icon={Trash2}
-                    onClick={() => setDeleteRoleDialog({ open: true, role })}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setDeleteRoleDialog({ open: true, role });
+                    }}
                   >
                     Delete
                   </Button>

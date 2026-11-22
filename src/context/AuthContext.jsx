@@ -44,7 +44,13 @@ export const AuthProvider = ({ children }) => {
         }
 
         const userRole = userData.role || (userData.roleId === "role_super_admin" ? "Super Admin" : "Staff");
-        const isSuper = userRole === "Super Admin" || userData.roleId === "role_super_admin";
+        const isSuper =
+          userRole === "Super Admin" ||
+          userData.roleId === "role_super_admin" ||
+          userRole?.toLowerCase()?.trim() === "super admin" ||
+          userRole?.toLowerCase()?.trim() === "superadmin" ||
+          userRole?.toLowerCase()?.trim() === "super_admin" ||
+          userRole?.toLowerCase()?.trim() === "admin";
 
         const currentUser = {
           id: fbUser.uid,
@@ -90,7 +96,13 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  const isSuperAdmin = user?.role === "Super Admin" || user?.roleId === "role_super_admin";
+  const isSuperAdmin =
+    user?.role === "Super Admin" ||
+    user?.roleId === "role_super_admin" ||
+    user?.role?.toLowerCase()?.trim() === "super admin" ||
+    user?.role?.toLowerCase()?.trim() === "superadmin" ||
+    user?.role?.toLowerCase()?.trim() === "super_admin" ||
+    user?.role?.toLowerCase()?.trim() === "admin";
 
   /**
    * Resolves whether the current user has access to a specific permission key.

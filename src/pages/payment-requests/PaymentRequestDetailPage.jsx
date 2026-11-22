@@ -17,7 +17,8 @@ const PaymentRequestDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { user: currentUser, isSuperAdmin } = useAuth();
+  const { user: currentUser, isSuperAdmin, hasPermission } = useAuth();
+  const canDelete = isSuperAdmin || hasPermission("payments.delete") || hasPermission("payments");
   const { paymentRequests, approvePaymentRequest, rejectPaymentRequest, refreshPayments } =
     usePayments();
 
@@ -120,12 +121,16 @@ const PaymentRequestDetailPage = () => {
                 </Button>
               </>
             )}
-            {isSuperAdmin && (
+            {canDelete && (
               <Button
                 variant="outline"
                 icon={Trash2}
-                onClick={() => setDeleteDialogOpen(true)}
-                className="text-[#DC2626] border-[#FCA5A5] hover:bg-red-50"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  setDeleteDialogOpen(true);
+                }}
+                className="text-[#DC2626] border-[#FCA5A5] hover:bg-red-50 cursor-pointer"
               >
                 Delete
               </Button>

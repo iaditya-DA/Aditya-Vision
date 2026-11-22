@@ -42,7 +42,8 @@ const UserDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { user: currentUser, isSuperAdmin } = useAuth();
+  const { user: currentUser, isSuperAdmin, hasPermission } = useAuth();
+  const canDelete = isSuperAdmin || hasPermission("users.delete") || hasPermission("users");
 
   const [staff, setStaff] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -200,12 +201,16 @@ const UserDetailPage = () => {
                 </Button>
               )}
 
-              {!isSelf && !isTargetSuper && isSuperAdmin && (
+              {!isSelf && !isTargetSuper && canDelete && (
                 <Button
                   variant="danger"
                   size="sm"
                   icon={Trash2}
-                  onClick={() => setDeleteDialog(true)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setDeleteDialog(true);
+                  }}
                 >
                   Delete
                 </Button>

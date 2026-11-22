@@ -495,7 +495,11 @@ const DeliveriesTable = ({
                       {onDelete && (
                         <button
                           type="button"
-                          onClick={() => onDelete(row)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            onDelete(row);
+                          }}
                           className="p-1.5 text-[#6B7280] hover:text-[#DC2626] hover:bg-red-50 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-red-200"
                           title="Delete Delivery"
                           aria-label={`Delete delivery ${row.id}`}
@@ -635,8 +639,12 @@ const DeliveriesTable = ({
                 {onDelete && (
                   <button
                     type="button"
-                    onClick={() => onDelete(row)}
-                    className="px-2.5 py-1 text-xs rounded-lg border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 flex items-center gap-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onDelete(row);
+                    }}
+                    className="px-2.5 py-1 text-xs rounded-lg border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 flex items-center gap-1 cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" /> Delete
                   </button>

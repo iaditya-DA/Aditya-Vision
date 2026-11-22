@@ -51,6 +51,7 @@ const Drivers = () => {
   const toast = useToast();
   const navigate = useNavigate();
   const { user: currentUser, isSuperAdmin, hasPermission } = useAuth();
+  const canDeleteDrivers = isSuperAdmin || hasPermission("drivers.delete") || hasPermission("drivers");
 
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -522,11 +523,15 @@ const Drivers = () => {
             </button>
           )}
 
-          {isSuperAdmin && (
+          {canDeleteDrivers && (
             <button
               type="button"
-              onClick={() => handleInitiateDelete(row)}
-              className="p-1.5 rounded-lg text-[#6B7280] hover:text-[#DC2626] hover:bg-red-50 transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                handleInitiateDelete(row);
+              }}
+              className="p-1.5 rounded-lg text-[#6B7280] hover:text-[#DC2626] hover:bg-red-50 transition-colors cursor-pointer"
               title="Delete or Archive Driver"
             >
               <Trash2 className="w-4 h-4" />
@@ -632,7 +637,7 @@ const Drivers = () => {
       </div>
 
       {/* Bulk Selection Bar */}
-      {isSuperAdmin && selectedDriverIds.length > 0 && (
+      {canDeleteDrivers && selectedDriverIds.length > 0 && (
         <div className="bg-[#FFF1F0] border border-[#FCA5A5] rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
           <div className="flex items-center gap-2 text-sm font-semibold text-[#E53935]">
             <CheckSquare className="w-5 h-5 text-[#E53935]" />
@@ -672,7 +677,7 @@ const Drivers = () => {
               columns={columns}
               data={paginatedDrivers}
               keyField="id"
-              selectable={isSuperAdmin}
+              selectable={canDeleteDrivers}
               selectedIds={selectedDriverIds}
               onSelectionChange={setSelectedDriverIds}
               emptyMessage="No drivers registered yet."

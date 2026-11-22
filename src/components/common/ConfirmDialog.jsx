@@ -5,14 +5,17 @@ import Button from "./Button";
 import Input from "./Input";
 
 const ConfirmDialog = ({
+  open,
   isOpen,
   onClose,
+  onCancel,
   onConfirm,
   title = "Confirm Action",
   message = "Are you sure you want to proceed?",
   confirmText = "Confirm",
   cancelText = "Cancel",
   type = "danger",
+  variant,
   loading = false,
   requireKeyword = false,
   keyword = "DELETE",
@@ -20,18 +23,28 @@ const ConfirmDialog = ({
   recordTitle = "",
   selectedCount = 0,
   showReasonInput = false,
-  reason = "",
+  reason: controlledReason = "",
   onReasonChange = null,
 }) => {
+  const isModalOpen = Boolean(open !== undefined ? open : isOpen);
+  const handleClose = () => {
+    if (onClose) onClose();
+    else if (onCancel) onCancel();
+  };
+
   const [keywordInput, setKeywordInput] = useState("");
+  const [internalReason, setInternalReason] = useState("");
 
   useEffect(() => {
-    if (isOpen) {
+    if (isModalOpen) {
       Promise.resolve().then(() => {
         setKeywordInput("");
+        setInternalReason("");
       });
     }
-  }, [isOpen]);
+  }, [isModalOpen]);
+
+  const activeReason = controlledReason || internalReason || "";
 
   const iconConfig = {
     danger: {
@@ -52,29 +65,38 @@ const ConfirmDialog = ({
       bg: "bg-blue-50",
       btnVariant: "primary",
     },
+    default: {
+      icon: Info,
+      color: "text-[#2563EB]",
+      bg: "bg-blue-50",
+      btnVariant: "primary",
+    },
   };
 
-  const currentConfig = iconConfig[type] || iconConfig.danger;
+  const resolvedType = variant || type || "danger";
+  const currentConfig = iconConfig[resolvedType] || iconConfig.danger;
   const Icon = currentConfig.icon;
 
-  const isKeywordMatching = !requireKeyword || keywordInput.trim().toUpperCase() === keyword.toUpperCase();
+  const isKeywordMatching =
+    !requireKeyword ||
+    keywordInput.trim().toUpperCase() === keyword.toUpperCase();
   const canConfirm = !loading && isKeywordMatching;
 
   const handleConfirmAction = () => {
-    if (canConfirm) {
-      onConfirm(reason);
+    if (canConfirm && onConfirm) {
+      onConfirm({ reason: activeReason });
     }
   };
 
   return (
     <Modal
-      isOpen={isOpen}
-      onClose={onClose}
+      isOpen={isModalOpen}
+      onClose={handleClose}
       size="sm"
       showCloseButton={!loading}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} disabled={loading}>
+          <Button variant="secondary" onClick={handleClose} disabled={loading}>
             {cancelText}
           </Button>
           <Button
@@ -145,8 +167,11 @@ const ConfirmDialog = ({
           <div className="pt-1">
             <Input
               label="Reason for Audit Log (Optional)"
-              value={reason}
-              onChange={(e) => onReasonChange && onReasonChange(e.target.value)}
+              value={activeReason}
+              onChange={(e) => {
+                setInternalReason(e.target.value);
+                if (onReasonChange) onReasonChange(e.target.value);
+              }}
               placeholder="e.g. Duplicate order entry, Customer cancellation"
             />
           </div>

@@ -40,6 +40,7 @@ const PAGE_SIZE = 10;
 const PaymentRequests = () => {
   const navigate = useNavigate();
   const { user: currentUser, isSuperAdmin, hasPermission } = useAuth();
+  const canDeletePayments = isSuperAdmin || hasPermission("payments.delete") || hasPermission("payments");
   const {
     paymentRequests = [],
     approvePaymentRequest,
@@ -274,11 +275,15 @@ const PaymentRequests = () => {
               </button>
             </>
           )}
-          {isSuperAdmin && (
+          {canDeletePayments && (
             <button
               type="button"
-              onClick={() => setRequestToDelete(row)}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-[#DC2626] hover:bg-red-50 transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                setRequestToDelete(row);
+              }}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-[#DC2626] hover:bg-red-50 transition-colors cursor-pointer"
               title="Delete Requisition"
             >
               <Trash2 className="w-4 h-4" />
@@ -412,7 +417,7 @@ const PaymentRequests = () => {
           </div>
 
           {/* Bulk Selection Bar */}
-          {isSuperAdmin && selectedRequestIds.length > 0 && (
+          {canDeletePayments && selectedRequestIds.length > 0 && (
             <div className="bg-[#FFF1F0] border border-[#FCA5A5] rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
               <div className="flex items-center gap-2 text-sm font-semibold text-[#E53935]">
                 <CheckSquare className="w-5 h-5 text-[#E53935]" />
@@ -445,7 +450,7 @@ const PaymentRequests = () => {
               columns={columns}
               data={paginatedRequests}
               keyField="id"
-              selectable={isSuperAdmin}
+              selectable={canDeletePayments}
               selectedIds={selectedRequestIds}
               onSelectionChange={setSelectedRequestIds}
             />

@@ -382,7 +382,11 @@ const DataManagementPage = () => {
             <div className="flex items-center justify-end gap-1">
               <button
                 type="button"
-                onClick={() => handleInitiateSingleDelete(row)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  handleInitiateSingleDelete(row);
+                }}
                 className="p-1.5 text-gray-400 hover:text-[#DC2626] hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                 title="Delete Delivery"
               >
@@ -440,7 +444,11 @@ const DataManagementPage = () => {
             <div className="flex items-center justify-end gap-1">
               <button
                 type="button"
-                onClick={() => handleInitiateSingleDelete(row)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  handleInitiateSingleDelete(row);
+                }}
                 className="p-1.5 text-gray-400 hover:text-[#DC2626] hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                 title="Delete or Archive Driver"
               >
@@ -499,7 +507,11 @@ const DataManagementPage = () => {
             <div className="flex items-center justify-end gap-1">
               <button
                 type="button"
-                onClick={() => handleInitiateSingleDelete(row)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  handleInitiateSingleDelete(row);
+                }}
                 className="p-1.5 text-gray-400 hover:text-[#DC2626] hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                 title="Delete Payment Request"
               >
@@ -551,7 +563,11 @@ const DataManagementPage = () => {
             <div className="flex items-center justify-end gap-1">
               <button
                 type="button"
-                onClick={() => handleInitiateSingleDelete(row)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  handleInitiateSingleDelete(row);
+                }}
                 className="p-1.5 text-gray-400 hover:text-[#DC2626] hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                 title="Delete Saved Report"
               >

@@ -35,6 +35,7 @@ const DriverDetailPage = () => {
   const toast = useToast();
   const { user: currentUser, isSuperAdmin, hasPermission } = useAuth();
   const canViewBank = isSuperAdmin || hasPermission("drivers.viewBankDetails");
+  const canDelete = isSuperAdmin || hasPermission("drivers.delete") || hasPermission("drivers");
 
   const [driver, setDriver] = useState(null);
   const [bank, setBank] = useState(null);
@@ -198,15 +199,21 @@ const DriverDetailPage = () => {
                 {driver.status === "Active" ? "Deactivate" : "Activate"}
               </Button>
 
-              <Button
-                variant="outline"
-                size="sm"
-                icon={Trash2}
-                onClick={handleInitiateDelete}
-                className="text-[#DC2626] border-[#FCA5A5] hover:bg-red-50"
-              >
-                Delete / Archive
-              </Button>
+              {canDelete && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  icon={Trash2}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    handleInitiateDelete();
+                  }}
+                  className="text-[#DC2626] border-[#FCA5A5] hover:bg-red-50 cursor-pointer"
+                >
+                  Delete / Archive
+                </Button>
+              )}
             </>
           )}
         </div>
