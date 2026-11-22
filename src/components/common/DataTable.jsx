@@ -12,6 +12,9 @@ const DataTable = ({
   onRowClick = null,
   keyField = "id",
   className = "",
+  selectable = false,
+  selectedIds = [],
+  onSelectionChange = null,
 }) => {
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
 
@@ -46,6 +49,36 @@ const DataTable = ({
     });
   }, [data, sortConfig]);
 
+  // Selection helpers
+  const isAllSelected = useMemo(() => {
+    if (!selectable || !data || data.length === 0) return false;
+    return data.every((row) => selectedIds.includes(row[keyField]));
+  }, [selectable, data, selectedIds, keyField]);
+
+  const handleToggleSelectAll = (e) => {
+    e.stopPropagation();
+    if (!onSelectionChange) return;
+    if (isAllSelected) {
+      // Remove all current rows from selection
+      const currentKeys = new Set(data.map((r) => r[keyField]));
+      onSelectionChange(selectedIds.filter((id) => !currentKeys.has(id)));
+    } else {
+      // Add all current rows to selection
+      const combined = new Set([...selectedIds, ...data.map((r) => r[keyField])]);
+      onSelectionChange(Array.from(combined));
+    }
+  };
+
+  const handleToggleRowSelect = (e, rowId) => {
+    e.stopPropagation();
+    if (!onSelectionChange) return;
+    if (selectedIds.includes(rowId)) {
+      onSelectionChange(selectedIds.filter((id) => id !== rowId));
+    } else {
+      onSelectionChange([...selectedIds, rowId]);
+    }
+  };
+
   if (loading) {
     return <LoadingState message="Loading data..." />;
   }
@@ -61,6 +94,18 @@ const DataTable = ({
       <table className="w-full text-left text-sm border-collapse">
         <thead>
           <tr className="bg-[#FAFBFD] border-b border-[#E5E7EB]">
+            {selectable && (
+              <th className="w-10 px-3 py-3 text-center">
+                <input
+                  type="checkbox"
+                  checked={isAllSelected}
+                  onChange={handleToggleSelectAll}
+                  aria-label="Select all rows"
+                  className="w-4 h-4 rounded text-[#E53935] focus:ring-[#E53935] border-gray-300 cursor-pointer"
+                />
+              </th>
+            )}
+
             {columns.map((col) => {
               const isSorted = sortConfig.key === col.key;
               const isSortable = col.sortable !== false;
@@ -107,15 +152,33 @@ const DataTable = ({
         <tbody className="divide-y divide-[#E5E7EB] bg-white">
           {sortedData.map((row, index) => {
             const rowKey = row[keyField] || index;
+            const isRowSelected = selectable && selectedIds.includes(rowKey);
+
             return (
               <tr
                 key={rowKey}
                 onClick={() => onRowClick && onRowClick(row)}
                 className={`
                   transition-colors duration-150
-                  ${onRowClick ? "cursor-pointer hover:bg-[#FFF8F7]" : "hover:bg-[#FFF8F7]"}
+                  ${isRowSelected ? "bg-red-50/30" : "hover:bg-[#FFF8F7]"}
+                  ${onRowClick ? "cursor-pointer" : ""}
                 `}
               >
+                {selectable && (
+                  <td
+                    className="w-10 px-3 py-3.5 text-center"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isRowSelected}
+                      onChange={(e) => handleToggleRowSelect(e, rowKey)}
+                      aria-label={`Select row ${rowKey}`}
+                      className="w-4 h-4 rounded text-[#E53935] focus:ring-[#E53935] border-gray-300 cursor-pointer"
+                    />
+                  </td>
+                )}
+
                 {columns.map((col) => (
                   <td
                     key={col.key || col.label}
