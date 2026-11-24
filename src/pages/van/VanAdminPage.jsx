@@ -21,10 +21,12 @@ import {
   Eye,
   RotateCcw,
   Maximize2,
+  Sparkles,
 } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../hooks/useToast";
 import ConfirmDialog from "../../components/common/ConfirmDialog";
+import Modal from "../../components/common/Modal";
 import Pagination from "../../components/common/Pagination";
 import {
   extractTableFromPdf,
@@ -33,15 +35,20 @@ import {
   extractModelKey,
   extractSearchTokens,
   normalizeItemCode,
+  computePdfHash,
 } from "../../services/vanPdfExtractionService";
 import {
   getVanCompanies,
   getVanPresets,
   saveVanPreset,
   getVanUploadHistory,
+  filterIncompleteOrOldUploads,
+  deleteVanUpload,
   publishCompanyVanData,
+  previewIncrementalPublish,
   removeCompanyVanData,
   migrateLegacyVanMeta,
+  classifyVanError,
   getCompanyKey,
 } from "../../services/vanService";
 import { formatDate } from "../../utils/formatters";
@@ -120,26 +127,56 @@ const VanAdminPage = () => {
 
   // Publish Dialog & Deletion
   const [isConfirmPublishOpen, setIsConfirmPublishOpen] = useState(false);
+  const [isPublishPreviewOpen, setIsPublishPreviewOpen] = useState(false);
+  const [publishPreviewData, setPublishPreviewData] = useState(null);
+  const [approvedDuplicateIds, setApprovedDuplicateIds] = useState(new Set());
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [ignoreIntegrityWarning, setIgnoreIntegrityWarning] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
-  const [publishProgress, setPublishProgress] = useState(0);
+  const [publishProgress, setPublishProgress] = useState({
+    percent: 10,
+    savedCount: 0,
+    totalCount: 0,
+    batchesDone: 0,
+    totalBatches: 0,
+    elapsedSeconds: 0,
+    message: "",
+  });
+  const abortControllerRef = useRef(null);
+  const publishingLockRef = useRef(false);
+  const [fileHash, setFileHash] = useState("");
+  const [forcePublish, setForcePublish] = useState(false);
+  const [isQuotaModalOpen, setIsQuotaModalOpen] = useState(false);
+  const [quotaExceededDetected, setQuotaExceededDetected] = useState(false);
+
   const [deleteTargetCompany, setDeleteTargetCompany] = useState(null);
   const [isDeletingCompany, setIsDeletingCompany] = useState(false);
 
+  // Incomplete / Old Uploads state
+  const [incompleteUploads, setIncompleteUploads] = useState([]);
+  const [deleteTargetUpload, setDeleteTargetUpload] = useState(null);
+  const [isDeletingUpload, setIsDeletingUpload] = useState(false);
+  const [deleteUploadProgress, setDeleteUploadProgress] = useState(0);
+
   const fileInputRef = useRef(null);
 
-  // ─── Load Initial Data ─────────────────────────────────
+  // ─── Load Initial Data (Optimized: 0 redundant reads) ──
   const loadInitialData = useCallback(async () => {
     setLoadingInitial(true);
     try {
       await migrateLegacyVanMeta();
+      // Single parallel roundtrip for companies, presets, and history
       const [compList, presetList, histList] = await Promise.all([
         getVanCompanies(),
         getVanPresets(),
         getVanUploadHistory(25),
       ]);
+      // Compute incomplete/old uploads in memory without duplicate queries
+      const oldUploads = filterIncompleteOrOldUploads(compList, histList);
       setCompanies(compList);
       setPresets(presetList);
       setHistory(histList);
+      setIncompleteUploads(oldUploads);
     } catch (err) {
       console.warn("Failed to load initial VAN data:", err);
       toast.error("Could not load initial catalog data.");
@@ -158,10 +195,12 @@ const VanAdminPage = () => {
           getVanPresets(),
           getVanUploadHistory(25),
         ]);
+        const oldUploads = filterIncompleteOrOldUploads(compList, histList);
         if (mounted) {
           setCompanies(compList);
           setPresets(presetList);
           setHistory(histList);
+          setIncompleteUploads(oldUploads);
           setLoadingInitial(false);
         }
       } catch (err) {
@@ -177,7 +216,7 @@ const VanAdminPage = () => {
     };
   }, [toast]);
 
-  // ─── Effective Company Name ────────────────────────────
+  // ─── Effective Company Name & Identical PDF Check ──────
   const effectiveCompanyName = useMemo(() => {
     if (isNewCompany) return newCompanyInput.trim();
     if (selectedCompany) {
@@ -186,6 +225,20 @@ const VanAdminPage = () => {
     }
     return "";
   }, [isNewCompany, newCompanyInput, selectedCompany, companies]);
+
+  const activeCompany = useMemo(() => {
+    if (!effectiveCompanyName) return null;
+    const key = getCompanyKey(effectiveCompanyName);
+    return companies.find((c) => c.key === key) || null;
+  }, [effectiveCompanyName, companies]);
+
+  const isIdenticalPdf = useMemo(() => {
+    return Boolean(
+      activeCompany?.fileHash &&
+      fileHash &&
+      activeCompany.fileHash === fileHash
+    );
+  }, [activeCompany, fileHash]);
 
   // ─── PDF Upload & In-Memory Extraction ─────────────────
   const handlePdfUpload = async (file) => {
@@ -203,6 +256,15 @@ const VanAdminPage = () => {
 
     try {
       const buffer = await file.arrayBuffer();
+
+      // Compute SHA-256 hash of PDF buffer for same-PDF detection
+      try {
+        const hash = await computePdfHash(buffer.slice(0));
+        setFileHash(hash);
+        setForcePublish(false);
+      } catch (hashErr) {
+        console.warn("Could not compute PDF hash:", hashErr);
+      }
 
       // Check if a preset exists for this company
       const effKey = getCompanyKey(effectiveCompanyName);
@@ -704,8 +766,12 @@ const VanAdminPage = () => {
     }
   };
 
-  // ─── Publish Catalog ───────────────────────────────────
-  const handlePublishCatalog = async () => {
+  // ─── Incremental Publish Preview & Execution ────────────
+  const handleOpenPublishPreview = async () => {
+    if (publishingLockRef.current || isPublishing) {
+      console.warn("Publishing already in progress. Ignoring duplicate click.");
+      return;
+    }
     if (!effectiveCompanyName) {
       toast.error("Company Name is required.");
       return;
@@ -714,31 +780,198 @@ const VanAdminPage = () => {
       toast.error("No valid items to publish.");
       return;
     }
-    setIsConfirmPublishOpen(false);
-    setIsPublishing(true);
-    setPublishProgress(10);
+    setIsLoadingPreview(true);
+    setApprovedDuplicateIds(new Set());
+    setIgnoreIntegrityWarning(false);
     try {
-      await publishCompanyVanData({
+      const preview = await previewIncrementalPublish({
+        companyName: effectiveCompanyName,
+        itemsToPublish: validationStats.validItems,
+      });
+      setPublishPreviewData(preview);
+      setIsPublishPreviewOpen(true);
+    } catch (err) {
+      console.error("Preview error:", err);
+      toast.error("Failed to calculate publish preview: " + err.message);
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
+  const handlePublishCatalog = async (customComparison = null, approvedNewProducts = null) => {
+    // Synchronous lock to prevent rapid double-click publishing
+    if (publishingLockRef.current || isPublishing) {
+      console.warn("Publishing already in progress. Ignoring duplicate click.");
+      return;
+    }
+    publishingLockRef.current = true;
+
+    if (!effectiveCompanyName) {
+      toast.error("Company Name is required.");
+      publishingLockRef.current = false;
+      return;
+    }
+    if (validationStats.validItems.length === 0) {
+      toast.error("No valid items to publish.");
+      publishingLockRef.current = false;
+      return;
+    }
+    if (validationStats.validItems.length > 15000) {
+      toast.error("Publishing is blocked above 15,000 writes to preserve daily Spark plan quota.");
+      publishingLockRef.current = false;
+      return;
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    setIsConfirmPublishOpen(false);
+    setIsPublishPreviewOpen(false);
+    setIsPublishing(true);
+    setPublishProgress({
+      percent: 10,
+      savedCount: 0,
+      totalCount: validationStats.validItems.length,
+      batchesDone: 0,
+      totalBatches: Math.ceil(validationStats.validItems.length / 400),
+      elapsedSeconds: 0,
+      message: `Starting import...`,
+    });
+
+    try {
+      const comparisonToUse = customComparison || publishPreviewData?.comparison || null;
+      const baseNew = comparisonToUse?.newProducts || publishPreviewData?.newProducts || [];
+      const productsToPass =
+        Array.isArray(approvedNewProducts) && approvedNewProducts.length > 0
+          ? approvedNewProducts
+          : baseNew.length > 0
+          ? baseNew
+          : null;
+
+      const res = await publishCompanyVanData({
         companyName: effectiveCompanyName,
         file: uploadedFile || { name: `${effectiveCompanyName}_catalog.pdf` },
+        fileHash,
+        forcePublish: forcePublish || ignoreIntegrityWarning,
         itemsToPublish: validationStats.validItems,
         totalRowsRead: rawGrid.rows.length,
         user,
-        onProgress: (pct) => setPublishProgress(pct),
+        abortSignal: controller.signal,
+        precomputedComparison: comparisonToUse,
+        approvedNewProducts: productsToPass,
+        onProgress: (p) => {
+          if (typeof p === "number") {
+            setPublishProgress((prev) => ({ ...prev, percent: p }));
+          } else {
+            setPublishProgress(p);
+          }
+        },
       });
-      toast.success(`Catalog saved: ${validationStats.validItems.length} products published for ${effectiveCompanyName}!`);
+
+      if (res?.skipped) {
+        toast.info(res.message || "All products already exist in catalog.");
+      } else {
+        const savedMsg =
+          (res.writesSaved || 0) > 0
+            ? ` (${res.writesSaved.toLocaleString()} existing products preserved with 0 writes)`
+            : "";
+        toast.success(
+          `Import complete: ${res.newCount || 0} new products added to ${effectiveCompanyName}! Total catalog: ${res.rowCount || 0} active products.${savedMsg}`
+        );
+
+        // Optimistically update active catalog state immediately for instant feedback
+        if (res?.rowCount !== undefined) {
+          setCompanies((prev) => {
+            const compKey = res.companyKey || getCompanyKey(effectiveCompanyName);
+            const idx = prev.findIndex((c) => c.key === compKey);
+            const updated = {
+              key: compKey,
+              name: effectiveCompanyName,
+              rowCount: res.rowCount,
+              activeUploadId: res.catalogUploadId,
+              publishedAt: new Date().toISOString(),
+            };
+            if (idx >= 0) {
+              const next = [...prev];
+              next[idx] = { ...next[idx], ...updated };
+              return next;
+            }
+            return [...prev, updated];
+          });
+        }
+      }
+
       await loadInitialData();
       setUploadedFile(null);
       setParsedPdfCache(null);
-      setRawGrid({ headers: [], rows: [], pageCount: 0, rowDetectionFailed: false, failureReason: "", lastSno: 0, missingSno: [] });
+      setFileHash("");
+      setForcePublish(false);
+      setPublishPreviewData(null);
+      setIgnoreIntegrityWarning(false);
+      setRawGrid({
+        headers: [],
+        rows: [],
+        pageCount: 0,
+        rowDetectionFailed: false,
+        failureReason: "",
+        lastSno: 0,
+        missingSno: [],
+      });
       setSelectedRowIds(new Set());
       setEditedCells({});
     } catch (err) {
-      console.error("Publish error:", err);
-      toast.error(err.message || "Failed to save catalog.");
+      if (controller.signal.aborted) {
+        toast.info("Upload cancelled. Previous active catalog remains active.");
+      } else {
+        console.error("Publish error:", err);
+        const classified = classifyVanError(err);
+        if (classified.type === "FIRESTORE_QUOTA_ERROR") {
+          setQuotaExceededDetected(true);
+          setIsQuotaModalOpen(true);
+        } else {
+          toast.error(`${classified.type}: ${classified.message}`);
+        }
+      }
+      await loadInitialData();
     } finally {
       setIsPublishing(false);
-      setPublishProgress(0);
+      publishingLockRef.current = false;
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleCancelPublish = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
+
+  // ─── Delete Inactive / Incomplete Upload ───────────────
+  const handleDeleteUploadConfirm = async () => {
+    if (!deleteTargetUpload) return;
+    setIsDeletingUpload(true);
+    setDeleteUploadProgress(0);
+    try {
+      const res = await deleteVanUpload(deleteTargetUpload.id, (p) => {
+        setDeleteUploadProgress(p.deletedCount);
+      });
+      toast.success(
+        `Deleted upload "${deleteTargetUpload.fileName}" and ${res.deletedCount} items.`
+      );
+      setDeleteTargetUpload(null);
+      await loadInitialData();
+    } catch (err) {
+      console.error("Delete upload error:", err);
+      const classified = classifyVanError(err);
+      if (classified.type === "FIRESTORE_QUOTA_ERROR") {
+        setQuotaExceededDetected(true);
+        setIsQuotaModalOpen(true);
+      } else {
+        toast.error(`${classified.type}: ${classified.message}`);
+      }
+    } finally {
+      setIsDeletingUpload(false);
+      setDeleteUploadProgress(0);
     }
   };
 
@@ -1112,20 +1345,92 @@ const VanAdminPage = () => {
                   )}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setIsConfirmPublishOpen(true)}
-                  disabled={
-                    !effectiveCompanyName ||
-                    validationStats.validItems.length === 0 ||
-                    isPublishing ||
-                    healthChecks.failed
-                  }
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#E53935] hover:bg-[#C62828] text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <span>Save to Catalog ({validationStats.validItems.length})</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  {isIdenticalPdf && (
+                    <div className="bg-blue-50 border border-blue-300 rounded-xl px-3 py-2 text-xs text-blue-900 flex items-start gap-2 max-w-md">
+                      <Sparkles className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold text-blue-800">
+                          Identical PDF Detected
+                        </span>
+                        <p className="text-[11px] text-blue-700 mt-0.5">
+                          This exact PDF is already active for {effectiveCompanyName}. Publishing will be skipped to save writes unless forced.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {quotaExceededDetected ? (
+                    <div className="bg-red-50 border border-red-300 rounded-xl px-3 py-2 text-xs text-red-900 flex items-start gap-2 max-w-md">
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold text-red-800">
+                          Firestore Quota Exceeded (20,000 writes/day)
+                        </span>
+                        <p className="text-[11px] text-red-700 mt-0.5">
+                          Daily write limit reached.{" "}
+                          <button
+                            type="button"
+                            onClick={() => setIsQuotaModalOpen(true)}
+                            className="underline font-bold hover:text-red-950 cursor-pointer"
+                          >
+                            Solve karne ke options dekhein
+                          </button>
+                        </p>
+                      </div>
+                    </div>
+                  ) : validationStats.validItems.length > 15000 ? (
+                    <div className="bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 text-xs text-amber-900 flex items-start gap-2 max-w-md">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold text-amber-800">
+                          {validationStats.validItems.length.toLocaleString()} writes • Blocked above 15,000
+                        </span>
+                        <p className="text-[11px] text-amber-700 mt-0.5">
+                          Spark plan daily limit about 20,000 writes (shared with all other writes today). Suggestion: Filter to Active rows or publish brand-wise.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-[#6B7280] font-medium max-w-xs text-right">
+                      {validationStats.validItems.length.toLocaleString()} writes. Spark plan daily limit about 20,000 writes (shared with all other writes today).
+                    </span>
+                  )}
+
+                  {isIdenticalPdf && (
+                    <label className="inline-flex items-center gap-1.5 text-xs text-gray-700 font-semibold cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={forcePublish}
+                        onChange={(e) => setForcePublish(e.target.checked)}
+                        className="rounded text-[#E53935] focus:ring-[#E53935]"
+                      />
+                      <span>Force Re-publish anyway</span>
+                    </label>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleOpenPublishPreview}
+                    disabled={
+                      !effectiveCompanyName ||
+                      validationStats.validItems.length === 0 ||
+                      validationStats.validItems.length > 15000 ||
+                      isPublishing ||
+                      isLoadingPreview ||
+                      healthChecks.failed
+                    }
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#E53935] hover:bg-[#C62828] text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0"
+                  >
+                    {isLoadingPreview ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-4 h-4" />
+                    )}
+                    <span>Save to Catalog ({validationStats.validItems.length})</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -1697,6 +2002,7 @@ const VanAdminPage = () => {
                 <tr>
                   <th className="p-2.5 font-semibold">Company</th>
                   <th className="p-2.5 font-semibold">File</th>
+                  <th className="p-2.5 font-semibold text-center">Status</th>
                   <th className="p-2.5 font-semibold text-center">Items</th>
                   <th className="p-2.5 font-semibold">Published</th>
                   <th className="p-2.5 font-semibold">Admin</th>
@@ -1705,24 +2011,66 @@ const VanAdminPage = () => {
               <tbody className="divide-y divide-[#E5E7EB]">
                 {history.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-6 text-center text-gray-400">
+                    <td colSpan={6} className="p-6 text-center text-gray-400">
                       No records.
                     </td>
                   </tr>
                 ) : (
-                  history.slice(0, 8).map((h) => (
-                    <tr key={h.id} className="hover:bg-gray-50/50">
-                      <td className="p-2.5 font-bold text-[#202124]">{h.companyName || h.companyKey}</td>
-                      <td className="p-2.5 text-gray-600 truncate max-w-[180px]" title={h.fileName}>
-                        {h.fileName}
-                      </td>
-                      <td className="p-2.5 text-center font-mono font-semibold text-[#E53935]">
-                        {h.rowCount || h.selectedCount || 0}
-                      </td>
-                      <td className="p-2.5 text-gray-500">{formatDate(h.publishedAt || h.createdAt)}</td>
-                      <td className="p-2.5 text-gray-500">{h.createdByName || "Super Admin"}</td>
-                    </tr>
-                  ))
+                  history.slice(0, 8).map((h) => {
+                    const isPublished = h.status === "published" || h.status === "complete";
+                    const isPublishing = h.status === "publishing" || h.status === "uploading";
+                    const isFailed = h.status === "failed";
+                    const isCancelled = h.status === "cancelled";
+
+                    return (
+                      <tr key={h.id} className="hover:bg-gray-50/50">
+                        <td className="p-2.5 font-bold text-[#202124]">{h.companyName || h.companyKey}</td>
+                        <td className="p-2.5 text-gray-600 truncate max-w-[160px]" title={h.fileName}>
+                          {h.fileName}
+                        </td>
+                        <td className="p-2.5 text-center">
+                          {isPublished ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              Published
+                            </span>
+                          ) : isPublishing ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                              <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
+                              Publishing
+                            </span>
+                          ) : isFailed ? (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-50 text-red-700 border border-red-200 cursor-help"
+                              title={h.failureError || "Publishing failed"}
+                            >
+                              <AlertCircle className="w-3 h-3 text-red-600" />
+                              Failed
+                            </span>
+                          ) : isCancelled ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-700 border border-gray-200">
+                              Cancelled
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-50 text-gray-600 border border-gray-200">
+                              {h.status || "Extracted"}
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-2.5 text-center font-mono font-semibold text-[#E53935]">
+                          {isPublished
+                            ? h.rowCount || h.publishedCount || h.selectedCount || 0
+                            : isPublishing
+                            ? `${h.totalExtracted || h.rowCount || 0} (in progress)`
+                            : isFailed
+                            ? `0 / ${h.totalExtracted || h.rowCount || 0}`
+                            : h.rowCount || 0}
+                        </td>
+                        <td className="p-2.5 text-gray-500">{formatDate(h.publishedAt || h.createdAt)}</td>
+                        <td className="p-2.5 text-gray-500">{h.createdByName || "Super Admin"}</td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -1730,15 +2078,360 @@ const VanAdminPage = () => {
         </div>
       </div>
 
+      {/* ── INCOMPLETE / OLD UPLOADS (CLEANUP SECTION) ── */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-2xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-[#202124] flex items-center gap-2">
+              <Trash2 className="w-4 h-4 text-[#E53935]" />
+              <span>Incomplete / Old Uploads</span>
+              {incompleteUploads.length > 0 && (
+                <span className="bg-amber-100 text-amber-800 text-[11px] font-bold px-2 py-0.5 rounded-full">
+                  {incompleteUploads.length}
+                </span>
+              )}
+            </h3>
+            <p className="text-xs text-gray-500 mt-1">
+              Uploads that are not the active catalog of any company (failed, cancelled, or superseded). Delete to clean up unused data.
+              <span className="font-semibold text-gray-700 ml-1">
+                Note: Deletes count against the Spark quota of 20,000 writes/day.
+              </span>
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={loadInitialData}
+            className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#D1D5DB] hover:bg-gray-50 text-xs font-semibold text-[#374151] cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Refresh</span>
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead className="bg-[#F8F9FA] border-b border-[#E5E7EB] text-[#6B7280]">
+              <tr>
+                <th className="p-2.5 font-semibold">Company</th>
+                <th className="p-2.5 font-semibold">File Name</th>
+                <th className="p-2.5 font-semibold">Status</th>
+                <th className="p-2.5 font-semibold text-center">Row Count</th>
+                <th className="p-2.5 font-semibold">Date</th>
+                <th className="p-2.5 font-semibold text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#E5E7EB]">
+              {incompleteUploads.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-gray-400">
+                    No incomplete or old uploads found. All catalogs are clean!
+                  </td>
+                </tr>
+              ) : (
+                incompleteUploads.map((u) => {
+                  let badgeClass = "bg-gray-100 text-gray-700 border-gray-300";
+                  if (u.status === "uploading") {
+                    badgeClass = "bg-amber-100 text-amber-800 border-amber-300 animate-pulse";
+                  } else if (u.status === "failed") {
+                    badgeClass = "bg-red-100 text-red-800 border-red-300";
+                  } else if (u.status === "cancelled") {
+                    badgeClass = "bg-gray-100 text-gray-600 border-gray-300";
+                  } else if (u.status === "archived") {
+                    badgeClass = "bg-slate-100 text-slate-700 border-slate-300";
+                  } else if (u.status === "complete") {
+                    badgeClass = "bg-blue-100 text-blue-800 border-blue-300";
+                  }
+
+                  return (
+                    <tr key={u.id} className="hover:bg-gray-50/50">
+                      <td className="p-2.5 font-bold text-[#202124]">{u.companyName || u.companyKey}</td>
+                      <td className="p-2.5 text-gray-600 truncate max-w-[200px]" title={u.fileName}>
+                        {u.fileName}
+                      </td>
+                      <td className="p-2.5">
+                        <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border uppercase ${badgeClass}`}>
+                          {u.status || "inactive"}
+                        </span>
+                      </td>
+                      <td className="p-2.5 text-center font-mono font-semibold text-gray-700">
+                        {u.rowCount || u.selectedCount || u.totalRowsRead || 0}
+                      </td>
+                      <td className="p-2.5 text-gray-500">{formatDate(u.publishedAt || u.createdAt)}</td>
+                      <td className="p-2.5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTargetUpload(u)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-200 rounded-lg cursor-pointer transition-colors"
+                          title="Delete this upload and its items"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* ── DIALOGS ── */}
+      {/* ── INCREMENTAL PUBLISH PREVIEW MODAL ── */}
+      <Modal
+        isOpen={isPublishPreviewOpen}
+        onClose={() => !isPublishing && setIsPublishPreviewOpen(false)}
+        title="Incremental Product Import Preview"
+        description={`Active catalog: ${publishPreviewData?.existingActiveCount || 0} products. Review new items and duplicate detection before importing into "${effectiveCompanyName}".`}
+        size="lg"
+        footer={
+          <div className="flex items-center justify-between w-full pt-2">
+            <div className="text-xs text-gray-500 font-medium">
+              Spark daily quota: <strong>20,000 writes/day</strong>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsPublishPreviewOpen(false)}
+                disabled={isPublishing}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              {(() => {
+                const baseNewProducts =
+                  publishPreviewData?.newProducts ||
+                  publishPreviewData?.comparison?.newProducts ||
+                  [];
+                const approvedDuplicates = (publishPreviewData?.potentialDuplicates || [])
+                  .filter((d) => approvedDuplicateIds.has(d.incomingItem.identity))
+                  .map((d) => d.incomingItem);
+                const totalNewToInsert = baseNewProducts.length + approvedDuplicates.length;
+                const totalExpectedWrites = totalNewToInsert + 2;
+                const finalProductsToInsert = [
+                  ...baseNewProducts,
+                  ...approvedDuplicates,
+                ];
+
+                return (
+                  <button
+                    type="button"
+                    onClick={() => handlePublishCatalog(publishPreviewData?.comparison, finalProductsToInsert)}
+                    disabled={isPublishing || (totalNewToInsert === 0 && !isIdenticalPdf)}
+                    className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-[#E53935] hover:bg-[#C62828] text-white text-xs font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {isPublishing ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ArrowRight className="w-4 h-4" />
+                    )}
+                    <span>
+                      {isIdenticalPdf && !forcePublish
+                        ? "Verify & Skip (0 Writes)"
+                        : totalNewToInsert === 0
+                        ? "All Products Already Exist (0 Writes)"
+                        : `Import ${totalNewToInsert} New Products (${totalExpectedWrites} Writes)`}
+                    </span>
+                  </button>
+                );
+              })()}
+            </div>
+          </div>
+        }
+      >
+        {publishPreviewData && (
+          <div className="space-y-4 py-1">
+            {/* Identical PDF notice */}
+            {isIdenticalPdf && !forcePublish && (
+              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 leading-relaxed">
+                  <strong>Identical PDF Detected:</strong> The SHA-256 hash matches the currently active catalog for <strong>{effectiveCompanyName}</strong>. Publishing will detect it as up-to-date and complete with <strong>0 writes</strong>.
+                </div>
+              </div>
+            )}
+
+            {/* 4 Metric Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3.5 rounded-xl bg-gray-50 border border-gray-200">
+                <div className="text-[11px] font-bold text-gray-700 uppercase tracking-wide flex items-center gap-1">
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-gray-500" />
+                  Extracted
+                </div>
+                <div className="text-2xl font-black text-gray-800 mt-1">
+                  {publishPreviewData.totalExtracted.toLocaleString()}
+                </div>
+                <div className="text-[10px] text-gray-500 mt-0.5 font-medium">
+                  Products in PDF
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                <div className="text-[11px] font-bold text-emerald-800 uppercase tracking-wide flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  Already in Catalog
+                </div>
+                <div className="text-2xl font-black text-emerald-700 mt-1">
+                  {publishPreviewData.alreadyExistingCount.toLocaleString()}
+                </div>
+                <div className="text-[10px] text-emerald-700/80 mt-0.5 font-medium">
+                  0 writes (Skipped)
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-200">
+                <div className="text-[11px] font-bold text-indigo-800 uppercase tracking-wide flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                  New Products
+                </div>
+                <div className="text-2xl font-black text-indigo-700 mt-1">
+                  {publishPreviewData.newCount.toLocaleString()}
+                </div>
+                <div className="text-[10px] text-indigo-700/80 mt-0.5 font-medium">
+                  To be inserted
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200">
+                <div className="text-[11px] font-bold text-amber-800 uppercase tracking-wide flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                  Potential Duplicates
+                </div>
+                <div className="text-2xl font-black text-amber-700 mt-1">
+                  {publishPreviewData.potentialDuplicatesCount.toLocaleString()}
+                </div>
+                <div className="text-[10px] text-amber-700/80 mt-0.5 font-medium">
+                  Needs review
+                </div>
+              </div>
+            </div>
+
+            {/* Quota & Projection Card */}
+            {(() => {
+              const approvedDuplicates = (publishPreviewData?.potentialDuplicates || [])
+                .filter((d) => approvedDuplicateIds.has(d.incomingItem.identity))
+                .map((d) => d.incomingItem);
+              const totalNewToInsert = (publishPreviewData?.newCount || 0) + approvedDuplicates.length;
+              const totalExpectedWrites = totalNewToInsert + 2;
+              const expectedReads = publishPreviewData.expectedReads || 0;
+              const finalCatalog = (publishPreviewData.existingActiveCount || 0) + totalNewToInsert;
+
+              return (
+                <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 space-y-2.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-gray-700">Estimated Firestore Operations:</span>
+                    <span className="font-bold text-gray-900 text-sm">
+                      {totalExpectedWrites.toLocaleString()} writes &bull; {expectedReads.toLocaleString()} reads
+                    </span>
+                  </div>
+                  {publishPreviewData.writesSaved > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-emerald-700">Existing Products Preserved:</span>
+                      <span className="font-bold text-emerald-700 text-sm">
+                        +{publishPreviewData.writesSaved.toLocaleString()} writes saved (0 existing overwritten)
+                      </span>
+                    </div>
+                  )}
+                  <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="h-full bg-[#E53935] rounded-full transition-all duration-300"
+                      style={{
+                        width: `${Math.min(100, Math.max(2, (totalExpectedWrites / 20000) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="text-[11px] text-gray-500 flex justify-between">
+                    <span>Impact on Spark 20K write quota: {((totalExpectedWrites / 20000) * 100).toFixed(2)}%</span>
+                    <span>
+                      Catalog Growth: {publishPreviewData.existingActiveCount.toLocaleString()} existing + {totalNewToInsert.toLocaleString()} new &rarr;{" "}
+                      <strong className="text-gray-900">{finalCatalog.toLocaleString()} total active products</strong>
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Potential Duplicates Review Table */}
+            {publishPreviewData.potentialDuplicates && publishPreviewData.potentialDuplicates.length > 0 && (
+              <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                    <span className="text-xs font-bold text-amber-900">
+                      Potential Duplicate Review ({publishPreviewData.potentialDuplicates.length} items)
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-amber-700 font-medium">
+                    Review and decide whether to skip or import as new
+                  </span>
+                </div>
+
+                <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
+                  {publishPreviewData.potentialDuplicates.map((dup, idx) => {
+                    const isApproved = approvedDuplicateIds.has(dup.incomingItem.identity);
+                    return (
+                      <div
+                        key={idx}
+                        className="p-2.5 rounded-lg bg-white border border-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs"
+                      >
+                        <div className="space-y-0.5 flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                              {dup.confidence}% Match
+                            </span>
+                            <span className="font-semibold text-gray-900 truncate">
+                              Incoming: {dup.incomingItem.modelNumber || dup.incomingItem.modelKey} (Code: {dup.incomingItem.itemCode})
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-gray-500 truncate">
+                            Existing: {dup.matchedExistingItem.modelNumber || dup.matchedExistingItem.modelKey} (Code: {dup.matchedExistingItem.itemCode})
+                          </div>
+                          <div className="text-[10px] text-amber-700 font-medium">
+                            {dup.reason}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-gray-700 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={isApproved}
+                              onChange={(e) => {
+                                setApprovedDuplicateIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (e.target.checked) next.add(dup.incomingItem.identity);
+                                  else next.delete(dup.incomingItem.identity);
+                                  return next;
+                                });
+                              }}
+                              className="rounded text-[#E53935] focus:ring-[#E53935]"
+                            />
+                            <span>Import as New Product</span>
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
       <ConfirmDialog
         isOpen={isConfirmPublishOpen}
         onClose={() => setIsConfirmPublishOpen(false)}
         onConfirm={handlePublishCatalog}
-        title="Publish Catalog to Firebase"
-        message={`Save ${validationStats.validItems.length} products for ${effectiveCompanyName}? This replaces the previous active catalog.`}
-        confirmText="Save to Catalog"
-        type="primary"
+        title={isIdenticalPdf ? "Identical PDF Detected - Confirm Action" : "Publish Catalog to Firebase"}
+        message={
+          isIdenticalPdf && !forcePublish
+            ? `Notice: This PDF has the exact same SHA-256 hash as the currently active catalog for "${effectiveCompanyName}". Clicking Save will detect it as up-to-date and skip unnecessary writes. To overwrite anyway, check "Force Re-publish" on the save bar.`
+            : `Save ${validationStats.validItems.length.toLocaleString()} products for ${effectiveCompanyName}? (${validationStats.validItems.length.toLocaleString()} writes. Spark plan daily limit about 20,000 writes, shared with all other writes today). This replaces the previous active catalog.`
+        }
+        confirmText={isIdenticalPdf && forcePublish ? "Force Re-publish" : "Save to Catalog"}
+        type={isIdenticalPdf ? "warning" : "primary"}
         loading={isPublishing}
       />
       <ConfirmDialog
@@ -1751,22 +2444,135 @@ const VanAdminPage = () => {
         type="danger"
         loading={isDeletingCompany}
       />
+      <ConfirmDialog
+        isOpen={Boolean(deleteTargetUpload)}
+        onClose={() => !isDeletingUpload && setDeleteTargetUpload(null)}
+        onConfirm={handleDeleteUploadConfirm}
+        title="Delete Incomplete / Old Upload"
+        message={`Delete upload "${deleteTargetUpload?.fileName}" (${deleteTargetUpload?.companyName || deleteTargetUpload?.companyKey})? This will delete all its items in Firestore in batches of 450. Note: Deletes count against the Spark quota of 20,000 per day.${deleteUploadProgress > 0 ? ` (${deleteUploadProgress} items deleted so far...)` : ""}`}
+        confirmText={isDeletingUpload ? `Deleting (${deleteUploadProgress})...` : "Delete this upload"}
+        type="danger"
+        loading={isDeletingUpload}
+      />
+
+      {/* ── QUOTA EXCEEDED MODAL ── */}
+      {isQuotaModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-red-100 space-y-4">
+            <div className="flex items-start gap-3">
+              <span className="p-2.5 rounded-xl bg-red-100 text-red-600 shrink-0">
+                <AlertCircle className="w-6 h-6" />
+              </span>
+              <div className="flex-1">
+                <h3 className="text-base font-bold text-gray-900">
+                  Firebase Quota Exceeded (Spark Plan Limit Reached)
+                </h3>
+                <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                  Upload complete nahi ho saka kyunki Firebase Firestore free plan (Spark Plan) ki daily limit (<strong>20,000 writes/day</strong>) aaj ke liye exhaust ho chuki hai.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsQuotaModalOpen(false)}
+                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 bg-gray-50 rounded-xl p-4 border border-gray-200/80 text-xs text-gray-700">
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-red-700">
+                  <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
+                  <span>Kyu hua?</span>
+                </div>
+                <p className="pl-3.5 text-gray-600">
+                  Aaj testing aur repeated publish ke dauran 20,000 writes limit complete ho chuki hai. Firebase is waqt kisi bhi naye write ko reject kar raha hai.
+                </p>
+              </div>
+
+              <div className="pt-2 border-t border-gray-200 space-y-2">
+                <div className="font-bold text-gray-900">Ise solve karne ke 2 tareeqe:</div>
+
+                <div className="bg-white p-3 rounded-lg border border-emerald-200 space-y-1">
+                  <div className="font-bold text-emerald-800 flex items-center justify-between">
+                    <span>1. Blaze Plan me switch karein (Recommended - Instant Fix)</span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 font-semibold uppercase">
+                      Turant Unblock
+                    </span>
+                  </div>
+                  <p className="text-gray-600 leading-normal">
+                    Firebase Console me ja kar project plan ko <strong>Blaze Plan (Pay as you go)</strong> me switch karein. Blaze plan par bhi daily pehle <strong>20,000 writes bilkul FREE</strong> rehte hain, aur uske baad sirf <strong>~$0.18 (~₹15) per 100,000 writes</strong> lagte hain. (700 products upload karne ka kharcha ₹0.15 se bhi kam hoga).
+                  </p>
+                  <a
+                    href="https://console.firebase.google.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 mt-1"
+                  >
+                    <span>Firebase Console open karein</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                <div className="bg-white p-3 rounded-lg border border-gray-200 space-y-1">
+                  <div className="font-bold text-gray-800">
+                    <span>2. Daily Quota Reset hone ka wait karein</span>
+                  </div>
+                  <p className="text-gray-600 leading-normal">
+                    Firebase Spark plan ka quota har din <strong>1:30 PM IST (Midnight US Pacific Time)</strong> ko automatically reset ho jata hai. Reset hone ke baad aap bina upgrade kiye fir se upload kar sakenge.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setIsQuotaModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-semibold cursor-pointer transition-colors"
+              >
+                Samajh gaya, Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isPublishing && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-xl border border-gray-100 text-center">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl border border-gray-100 text-center">
             <Loader2 className="w-8 h-8 text-[#E53935] animate-spin mx-auto" />
             <div>
               <h4 className="font-bold text-sm text-[#202124]">Publishing Catalog</h4>
-              <p className="text-xs text-[#6B7280] mt-1">Writing batches of 400...</p>
+              <p className="text-xs font-semibold text-gray-800 mt-1">
+                {publishProgress.message || `Saved ${publishProgress.savedCount || 0} of ${publishProgress.totalCount || 0} products`}
+              </p>
+              <p className="text-[11px] text-[#6B7280] mt-0.5">
+                Batch {publishProgress.batchesDone || 0} of {publishProgress.totalBatches || 0} • Elapsed: {publishProgress.elapsedSeconds || 0}s
+              </p>
             </div>
-            <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+            <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
               <div
-                className="bg-[#E53935] h-2 rounded-full transition-all"
-                style={{ width: `${publishProgress}%` }}
+                className="bg-[#E53935] h-2.5 rounded-full transition-all duration-300"
+                style={{ width: `${publishProgress.percent || 10}%` }}
               />
             </div>
-            <span className="text-xs font-semibold text-[#E53935]">{publishProgress}%</span>
+            <div className="flex items-center justify-between text-xs text-gray-500 font-medium px-0.5">
+              <span>{publishProgress.percent || 10}%</span>
+              <span>
+                {Math.max(0, (publishProgress.totalCount || 0) - (publishProgress.savedCount || 0))} remaining
+              </span>
+            </div>
+            <div className="pt-2 border-t border-gray-100 flex justify-center">
+              <button
+                type="button"
+                onClick={handleCancelPublish}
+                className="px-4 py-1.5 text-xs font-semibold text-gray-700 hover:text-red-700 bg-gray-100 hover:bg-red-50 border border-gray-300 rounded-lg cursor-pointer transition-colors"
+              >
+                Cancel Upload
+              </button>
+            </div>
           </div>
         </div>
       )}

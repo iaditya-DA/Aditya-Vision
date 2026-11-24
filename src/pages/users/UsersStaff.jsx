@@ -12,11 +12,14 @@ import {
   UserX,
   UserCheck,
   Loader2,
-  Mail,
   RotateCcw,
   Phone,
   CheckCircle2,
   XCircle,
+  KeyRound,
+  EyeOff,
+  X,
+  ShieldAlert,
 } from "lucide-react";
 import PageHeader from "../../components/layout/PageHeader";
 import Button from "../../components/common/Button";
@@ -29,8 +32,12 @@ import ConfirmDialog from "../../components/common/ConfirmDialog";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../hooks/useToast";
 import { ALL_PERMISSIONS, MODULE_PERMISSIONS, getRoles, deleteRole } from "../../services/roleService";
-import { getUsers, toggleStaffUserStatus, deleteStaffUser } from "../../services/userService";
-import { sendUserPasswordReset } from "../../services/authService";
+import {
+  getUsers,
+  toggleStaffUserStatus,
+  deleteStaffUser,
+  adminResetStaffUserPassword,
+} from "../../services/userService";
 import { formatDate } from "../../utils/formatters";
 
 const PAGE_SIZE = 8;
@@ -145,12 +152,43 @@ const UsersStaff = () => {
     }
   };
 
-  const handleSendResetEmail = async (staffMember) => {
+  // Admin Password Reset Modal State
+  const [passwordResetDialog, setPasswordResetDialog] = useState({ open: false, user: null });
+  const [resetPasswordVal, setResetPasswordVal] = useState("");
+  const [confirmResetPasswordVal, setConfirmResetPasswordVal] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [resetError, setResetError] = useState("");
+  const [isResetting, setIsResetting] = useState(false);
+
+  const handleResetPasswordSubmit = async (e) => {
+    e.preventDefault();
+    setResetError("");
+    const target = passwordResetDialog.user;
+    if (!target) return;
+
+    if (!resetPasswordVal || resetPasswordVal.length < 6) {
+      setResetError("New password must be at least 6 characters.");
+      return;
+    }
+
+    if (resetPasswordVal !== confirmResetPasswordVal) {
+      setResetError("Passwords do not match.");
+      return;
+    }
+
+    setIsResetting(true);
     try {
-      await sendUserPasswordReset(staffMember.email);
-      toast.success(`Password reset email dispatched to ${staffMember.email}`);
+      await adminResetStaffUserPassword(target.id, resetPasswordVal, currentUser);
+      toast.success(`Password reset successfully for ${target.name}.`);
+      setPasswordResetDialog({ open: false, user: null });
+      setResetPasswordVal("");
+      setConfirmResetPasswordVal("");
     } catch (err) {
-      toast.error(err.message || "Failed to send reset email");
+      console.error("Password reset failed:", err);
+      setResetError(err.message || "Failed to reset password.");
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -199,7 +237,9 @@ const UsersStaff = () => {
                 {row.code || row.id.slice(0, 8)}
               </span>
               <span>•</span>
-              <span>{row.email}</span>
+              <span className="font-mono text-[#202124]">
+                +91 {row.mobile || row.phone?.slice(-10) || "—"}
+              </span>
             </div>
           </div>
         </div>
@@ -295,14 +335,21 @@ const UsersStaff = () => {
 
         return (
           <div className="flex items-center justify-end gap-1">
-            <button
-              type="button"
-              onClick={() => handleSendResetEmail(row)}
-              className="p-1.5 rounded-lg text-[#6B7280] hover:text-[#2563EB] hover:bg-blue-50 transition-colors"
-              title="Dispatch Password Reset Email"
-            >
-              <Mail className="w-4 h-4" />
-            </button>
+            {(isSuperAdmin || hasPermission("users.edit")) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPasswordResetDialog({ open: true, user: row });
+                  setResetPasswordVal("");
+                  setConfirmResetPasswordVal("");
+                  setResetError("");
+                }}
+                className="p-1.5 rounded-lg text-[#6B7280] hover:text-[#E53935] hover:bg-red-50 transition-colors cursor-pointer"
+                title="Reset Staff Password"
+              >
+                <KeyRound className="w-4 h-4" />
+              </button>
+            )}
 
             <button
               type="button"
@@ -662,6 +709,112 @@ const UsersStaff = () => {
         message="This action cannot be undone. You cannot delete a role that is currently assigned to any staff members."
         confirmText="Delete Role"
       />
+
+      {/* Admin Reset Password Modal */}
+      {passwordResetDialog.open && passwordResetDialog.user && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-white rounded-2xl border border-[#E5E7EB] shadow-xl p-6 relative">
+            <button
+              type="button"
+              onClick={() => setPasswordResetDialog({ open: false, user: null })}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors p-1 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-red-50 text-[#E53935] flex items-center justify-center shrink-0">
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-[#202124]">
+                  Reset Password: {passwordResetDialog.user.name}
+                </h3>
+                <p className="text-xs text-[#6B7280]">
+                  Login Mobile: +91 {passwordResetDialog.user.mobile || passwordResetDialog.user.phone?.slice(-10)}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-red-50/60 border border-red-100 rounded-xl text-xs text-[#374151] mb-4">
+              <p>
+                Set a secure temporary password. The staff member can use their registered mobile number and this password to log in.
+              </p>
+            </div>
+
+            <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#202124] mb-1.5">
+                  New Password <span className="text-[#E53935]">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={resetPasswordVal}
+                    onChange={(e) => setResetPasswordVal(e.target.value)}
+                    placeholder="Minimum 6 characters"
+                    className="w-full h-10 px-3.5 pr-10 rounded-lg text-sm bg-white border border-[#E5E7EB] focus:border-[#E53935] focus:ring-1 focus:ring-[#E53935] outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#202124] mb-1.5">
+                  Confirm New Password <span className="text-[#E53935]">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={confirmResetPasswordVal}
+                    onChange={(e) => setConfirmResetPasswordVal(e.target.value)}
+                    placeholder="Re-enter new password"
+                    className="w-full h-10 px-3.5 pr-10 rounded-lg text-sm bg-white border border-[#E5E7EB] focus:border-[#E53935] focus:ring-1 focus:ring-[#E53935] outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {resetError && (
+                <div className="p-3 bg-red-50 rounded-lg border border-red-200 flex items-start gap-2 text-xs text-[#DC2626]">
+                  <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{resetError}</span>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setPasswordResetDialog({ open: false, user: null })}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={isResetting}
+                  icon={isResetting ? Loader2 : null}
+                >
+                  {isResetting ? "Updating Password..." : "Set New Password"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

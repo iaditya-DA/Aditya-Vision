@@ -1,9 +1,17 @@
 import { useState, useEffect } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../config/firebase";
 import { AuthContext } from "./authContextDef";
-import { loginWithEmail, logoutUser } from "../services/authService";
+import {
+  loginWithPhoneAndPassword,
+  loginWithEmail,
+  logoutUser,
+  findUserByPhone,
+  normalizePhone,
+  isValidIndianMobile,
+  isSyntheticInternalEmail,
+} from "../services/authService";
 import { ensureDefaultRoles, ALL_PERMISSIONS } from "../services/roleService";
 import { ensureDefaultSettings } from "../services/settingsService";
 import { Loader2 } from "lucide-react";
@@ -23,8 +31,46 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
-        const userRef = doc(db, "users", fbUser.uid);
-        const userSnap = await getDoc(userRef);
+        let userRef = doc(db, "users", fbUser.uid);
+        let userSnap = await getDoc(userRef);
+
+        // If direct UID lookup didn't find the user profile, check if this is a phone/synthetic email user
+        // whose profile was provisioned by phone number or linked from an existing account
+        if (!userSnap.exists()) {
+          const rawEmail = fbUser.email || "";
+          let phoneToFind = "";
+
+          if (isSyntheticInternalEmail(rawEmail)) {
+            phoneToFind = normalizePhone(rawEmail.split("@")[0]);
+          } else if (fbUser.phoneNumber) {
+            phoneToFind = normalizePhone(fbUser.phoneNumber);
+          }
+
+          if (phoneToFind) {
+            const staffByPhone = await findUserByPhone(phoneToFind);
+            if (staffByPhone) {
+              const existingData = { ...staffByPhone };
+              const originalDocId = staffByPhone.id;
+              delete existingData.id;
+
+              // Mirror / link user profile under fbUser.uid for instant O(1) lookups
+              await setDoc(
+                doc(db, "users", fbUser.uid),
+                {
+                  ...existingData,
+                  linkedAuthUids: [
+                    ...(staffByPhone.linkedAuthUids || []),
+                    fbUser.uid,
+                    originalDocId,
+                  ],
+                  updatedAt: serverTimestamp(),
+                },
+                { merge: true }
+              );
+              userSnap = await getDoc(doc(db, "users", fbUser.uid));
+            }
+          }
+        }
 
         if (!userSnap.exists()) {
           await logoutUser();
@@ -35,10 +81,16 @@ export const AuthProvider = ({ children }) => {
         }
 
         const userData = userSnap.data();
-        if (userData.status === "Inactive") {
+        const isInactive =
+          userData.status === "Inactive" ||
+          userData.status === "Disabled" ||
+          userData.status === "Suspended" ||
+          userData.isActive === false;
+
+        if (isInactive) {
           await logoutUser();
           setUser(null);
-          setAuthError("Account deactivated. Contact the administrator.");
+          setAuthError("Your account has been deactivated or suspended. Please contact the Super Admin.");
           setLoading(false);
           return;
         }
@@ -52,18 +104,26 @@ export const AuthProvider = ({ children }) => {
           userRole?.toLowerCase()?.trim() === "super_admin" ||
           userRole?.toLowerCase()?.trim() === "admin";
 
+        const mobileNumber =
+          userData.mobile ||
+          normalizePhone(userData.phone) ||
+          (isSyntheticInternalEmail(fbUser.email) ? normalizePhone(fbUser.email.split("@")[0]) : "");
+
         const currentUser = {
           id: fbUser.uid,
           uid: fbUser.uid,
           code: userData.code || userData.id || "USR-0000",
-          name: userData.name || fbUser.email?.split("@")[0] || "User",
-          email: userData.email || fbUser.email,
-          mobile: userData.mobile || userData.phone || "",
+          name: userData.name || fbUser.displayName || "Staff Member",
+          mobile: mobileNumber,
+          phone: userData.phone || (mobileNumber ? `+91${mobileNumber}` : ""),
+          email: userData.email || (isSyntheticInternalEmail(fbUser.email) ? "" : fbUser.email || ""),
           role: userRole,
           roleId: userData.roleId || (isSuper ? "role_super_admin" : null),
           permissions: userData.permissions || (isSuper ? ALL_PERMISSIONS.map((p) => p.key) : []),
           status: userData.status || "Active",
-          store: userData.store || "",
+          isActive: !isInactive,
+          store: userData.store || userData.assignedStore || "Benipatti Branch",
+          assignedStore: userData.assignedStore || userData.store || "Benipatti Branch",
           joinedDate: userData.joinedDate || "",
         };
 
@@ -86,9 +146,24 @@ export const AuthProvider = ({ children }) => {
     return () => unsubscribe();
   }, []);
 
-  const login = async (email, password) => {
+  /**
+   * Unified login handler. Accepts Registered Mobile Number or Email + Password.
+   * If mobile number is provided, automatically uses Phone + Password authentication.
+   */
+  const login = async (identifier, password) => {
     setAuthError("");
-    await loginWithEmail(email, password);
+    const cleanInput = String(identifier || "").trim();
+
+    if (isValidIndianMobile(cleanInput) || /^\d{10}$/.test(normalizePhone(cleanInput))) {
+      return await loginWithPhoneAndPassword(cleanInput, password);
+    }
+
+    if (cleanInput.includes("@")) {
+      return await loginWithEmail(cleanInput, password);
+    }
+
+    // Default to mobile login validation
+    return await loginWithPhoneAndPassword(cleanInput, password);
   };
 
   const logout = async () => {
@@ -119,7 +194,6 @@ export const AuthProvider = ({ children }) => {
     if (userPerms.includes(permissionKey)) return true;
 
     // 2. Granular key check when user has legacy module-level grant
-    // e.g. checking 'deliveries.view' when user has 'deliveries'
     if (permissionKey.includes(".")) {
       const [moduleName] = permissionKey.split(".");
       if (userPerms.includes(moduleName)) return true;
@@ -129,9 +203,17 @@ export const AuthProvider = ({ children }) => {
     }
 
     // 3. Module-level alias check when user has granular permissions
-    // e.g. checking 'deliveries' when user has 'deliveries.view' or 'deliveries.create'
     if (permissionKey === "dashboard") {
       return userPerms.includes("dashboard.view") || userPerms.includes("dashboard");
+    }
+    if (permissionKey === "van") {
+      return (
+        userPerms.includes("van.view") ||
+        userPerms.includes("van.upload") ||
+        userPerms.includes("van.search") ||
+        userPerms.includes("van.export") ||
+        userPerms.includes("van")
+      );
     }
     if (permissionKey === "deliveries") {
       return (
@@ -223,6 +305,7 @@ export const AuthProvider = ({ children }) => {
         authError,
         setAuthError,
         login,
+        loginWithPhoneAndPassword,
         logout,
         hasPermission,
       }}

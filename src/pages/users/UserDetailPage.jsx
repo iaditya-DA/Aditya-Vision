@@ -4,7 +4,6 @@ import {
   Phone,
   Building,
   Edit,
-  Mail,
   UserX,
   UserCheck,
   Trash2,
@@ -14,6 +13,11 @@ import {
   XCircle,
   Loader2,
   Clock,
+  KeyRound,
+  Eye,
+  EyeOff,
+  X,
+  ShieldAlert,
 } from "lucide-react";
 import FormPage from "../../components/layout/FormPage";
 import Button from "../../components/common/Button";
@@ -26,8 +30,8 @@ import {
   getUserById,
   toggleStaffUserStatus,
   deleteStaffUser,
+  adminResetStaffUserPassword,
 } from "../../services/userService";
-import { sendUserPasswordReset } from "../../services/authService";
 import { formatDate } from "../../utils/formatters";
 
 const ROLE_COLOR_MAP = {
@@ -44,6 +48,7 @@ const UserDetailPage = () => {
   const toast = useToast();
   const { user: currentUser, isSuperAdmin, hasPermission } = useAuth();
   const canDelete = isSuperAdmin || hasPermission("users.delete") || hasPermission("users");
+  const canEdit = isSuperAdmin || hasPermission("users.edit") || hasPermission("users");
 
   const [staff, setStaff] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -51,6 +56,15 @@ const UserDetailPage = () => {
   // Dialogs
   const [statusDialog, setStatusDialog] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
+
+  // Admin Password Reset Modal State
+  const [passwordResetDialog, setPasswordResetDialog] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [resetError, setResetError] = useState("");
+  const [isResetting, setIsResetting] = useState(false);
 
   const isSelf = staff && (staff.id === currentUser?.uid || staff.id === currentUser?.id);
   const isTargetSuper = staff && (staff.role === "Super Admin" || staff.roleId === "role_super_admin");
@@ -98,13 +112,32 @@ const UserDetailPage = () => {
     }
   };
 
-  const handleSendResetEmail = async () => {
-    if (!staff?.email) return;
+  const handleResetPasswordSubmit = async (e) => {
+    e.preventDefault();
+    setResetError("");
+
+    if (!newPassword || newPassword.length < 6) {
+      setResetError("New password must be at least 6 characters.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setResetError("Passwords do not match.");
+      return;
+    }
+
+    setIsResetting(true);
     try {
-      await sendUserPasswordReset(staff.email);
-      toast.success(`Password reset link dispatched to ${staff.email}`);
+      await adminResetStaffUserPassword(staff.id, newPassword, currentUser);
+      toast.success(`Password reset successfully for ${staff.name}.`);
+      setPasswordResetDialog(false);
+      setNewPassword("");
+      setConfirmPassword("");
     } catch (err) {
-      toast.error(err.message || "Failed to dispatch password reset email");
+      console.error("Password reset failed:", err);
+      setResetError(err.message || "Failed to reset password.");
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -163,7 +196,15 @@ const UserDetailPage = () => {
                     {staff.role}
                   </span>
                 </div>
-                <p className="text-xs text-[#6B7280] mt-1">{staff.email}</p>
+                <p className="text-xs text-[#6B7280] mt-1 flex items-center gap-2">
+                  <span className="font-semibold text-[#202124]">Login ID:</span>
+                  <span className="font-mono bg-red-50 text-[#E53935] px-2 py-0.5 rounded border border-red-100">
+                    +91 {staff.mobile || staff.phone?.slice(-10) || "—"}
+                  </span>
+                  {staff.email && (
+                    <span className="text-gray-400">({staff.email})</span>
+                  )}
+                </p>
               </div>
             </div>
 
@@ -171,15 +212,22 @@ const UserDetailPage = () => {
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={staff.status || "Active"} />
 
-              <Button
-                variant="secondary"
-                size="sm"
-                icon={Mail}
-                onClick={handleSendResetEmail}
-                title="Send Password Reset Email"
-              >
-                Reset Password
-              </Button>
+              {canEdit && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={KeyRound}
+                  onClick={() => {
+                    setResetError("");
+                    setNewPassword("");
+                    setConfirmPassword("");
+                    setPasswordResetDialog(true);
+                  }}
+                  title="Reset Staff Password"
+                >
+                  Reset Password
+                </Button>
+              )}
 
               <Button
                 variant="secondary"
@@ -221,10 +269,10 @@ const UserDetailPage = () => {
           {/* Details Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-xs">
             <div className="bg-gray-50/60 p-3.5 rounded-xl border border-[#E5E7EB]">
-              <span className="text-[#6B7280] block mb-1">Direct Mobile Contact</span>
+              <span className="text-[#6B7280] block mb-1">Registered Mobile Number (Login ID)</span>
               <span className="font-semibold text-[#202124] flex items-center gap-1.5 font-mono">
                 <Phone className="w-3.5 h-3.5 text-[#16A34A]" />
-                {staff.mobile || "Not specified"}
+                +91 {staff.mobile || staff.phone?.slice(-10) || "Not specified"}
               </span>
             </div>
 
@@ -232,7 +280,7 @@ const UserDetailPage = () => {
               <span className="text-[#6B7280] block mb-1">Assigned Store / Hub</span>
               <span className="font-semibold text-[#202124] flex items-center gap-1.5">
                 <Building className="w-3.5 h-3.5 text-[#2563EB]" />
-                {staff.store || "Benipatti Branch"}
+                {staff.store || staff.assignedStore || "Benipatti Branch"}
               </span>
             </div>
 
@@ -340,6 +388,112 @@ const UserDetailPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Admin Reset Password Modal */}
+      {passwordResetDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-white rounded-2xl border border-[#E5E7EB] shadow-xl p-6 relative">
+            <button
+              type="button"
+              onClick={() => setPasswordResetDialog(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors p-1 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-red-50 text-[#E53935] flex items-center justify-center shrink-0">
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-[#202124]">
+                  Reset Password: {staff.name}
+                </h3>
+                <p className="text-xs text-[#6B7280]">
+                  Login Mobile: +91 {staff.mobile || staff.phone?.slice(-10)}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-red-50/60 border border-red-100 rounded-xl text-xs text-[#374151] mb-4">
+              <p>
+                Set a secure temporary password. The staff member can use their registered mobile number and this password to log in.
+              </p>
+            </div>
+
+            <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#202124] mb-1.5">
+                  New Password <span className="text-[#E53935]">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Minimum 6 characters"
+                    className="w-full h-10 px-3.5 pr-10 rounded-lg text-sm bg-white border border-[#E5E7EB] focus:border-[#E53935] focus:ring-1 focus:ring-[#E53935] outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#202124] mb-1.5">
+                  Confirm New Password <span className="text-[#E53935]">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter new password"
+                    className="w-full h-10 px-3.5 pr-10 rounded-lg text-sm bg-white border border-[#E5E7EB] focus:border-[#E53935] focus:ring-1 focus:ring-[#E53935] outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {resetError && (
+                <div className="p-3 bg-red-50 rounded-lg border border-red-200 flex items-start gap-2 text-xs text-[#DC2626]">
+                  <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{resetError}</span>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setPasswordResetDialog(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={isResetting}
+                  icon={isResetting ? Loader2 : null}
+                >
+                  {isResetting ? "Updating Password..." : "Set New Password"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Confirm Status Change Dialog */}
       <ConfirmDialog

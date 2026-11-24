@@ -9,6 +9,10 @@ import {
   RotateCcw,
   ShieldCheck,
   AlertCircle,
+  KeyRound,
+  User,
+  Shield,
+  Layers,
 } from "lucide-react";
 import FormPage from "../../components/layout/FormPage";
 import FormSection from "../../components/layout/FormSection";
@@ -28,6 +32,7 @@ import {
   createStaffUser,
   updateStaffUser,
 } from "../../services/userService";
+import { isValidIndianMobile, normalizePhone } from "../../services/authService";
 
 const STORE_LOCATIONS = [
   "Benipatti Branch",
@@ -48,14 +53,14 @@ const UserFormPage = () => {
 
   const [form, setForm] = useState({
     name: "",
-    email: "",
     mobile: "",
-    role: "Staff",
-    status: "Active",
-    permissions: ["dashboard.view", "deliveries.view", "deliveries.create"],
+    email: "",
     store: "Benipatti Branch",
     password: "",
     confirmPassword: "",
+    role: "Staff",
+    status: "Active",
+    permissions: ["dashboard.view", "deliveries.view", "deliveries.create"],
   });
 
   const [showPassword, setShowPassword] = useState(false);
@@ -76,16 +81,16 @@ const UserFormPage = () => {
         if (userData) {
           setForm({
             name: userData.name || "",
+            mobile: userData.mobile || normalizePhone(userData.phone) || "",
             email: userData.email || "",
-            mobile: userData.mobile || "",
+            store: userData.store || userData.assignedStore || "Benipatti Branch",
+            password: "",
+            confirmPassword: "",
             role: userData.role || "Staff",
             status: userData.status || "Active",
             permissions: Array.isArray(userData.permissions)
               ? userData.permissions
               : ["dashboard.view", "deliveries.view"],
-            store: userData.store || "Benipatti Branch",
-            password: "",
-            confirmPassword: "",
           });
         }
         setLoadingInitial(false);
@@ -217,27 +222,26 @@ const UserFormPage = () => {
   const validate = () => {
     const errs = {};
     if (!form.name.trim() || form.name.trim().length < 2) {
-      errs.name = "Full name must be at least 2 characters";
+      errs.name = "Full employee name must be at least 2 characters";
     }
 
-    if (!form.email.trim()) {
-      errs.email = "Email address is required";
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
-      errs.email = "Please enter a valid email address";
-    }
-
-    const cleanMobile = form.mobile.replace(/\D/g, "");
+    const cleanMobile = normalizePhone(form.mobile);
     if (!cleanMobile) {
-      errs.mobile = "Mobile contact number is required";
-    } else if (!/^[6-9]\d{9}$/.test(cleanMobile)) {
+      errs.mobile = "Registered 10-digit mobile number is mandatory";
+    } else if (!isValidIndianMobile(cleanMobile)) {
       errs.mobile = "Enter a valid 10-digit Indian mobile number (e.g. 9876543210)";
+    }
+
+    const cleanEmail = form.email.trim();
+    if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      errs.email = "Please enter a valid email address";
     }
 
     if (!isEditing) {
       if (!form.password) {
         errs.password = "Initial password is required";
       } else if (form.password.length < 6) {
-        errs.password = "Password must be at least 6 characters";
+        errs.password = "Initial password must be at least 6 characters";
       }
 
       if (!form.confirmPassword) {
@@ -264,12 +268,15 @@ const UserFormPage = () => {
 
     setIsSubmitting(true);
     try {
+      const cleanMobile = normalizePhone(form.mobile);
+
       if (isEditing) {
         await updateStaffUser(
           id,
           {
             name: form.name.trim(),
-            mobile: form.mobile.trim(),
+            mobile: cleanMobile,
+            email: form.email.trim(),
             role: form.role,
             status: form.status,
             permissions: form.permissions,
@@ -282,12 +289,12 @@ const UserFormPage = () => {
         const res = await createStaffUser(
           {
             name: form.name.trim(),
+            mobile: cleanMobile,
+            password: form.password,
             email: form.email.trim(),
-            mobile: form.mobile.trim(),
             role: form.role,
             status: form.status,
             permissions: form.permissions,
-            password: form.password,
             store: form.store.trim(),
           },
           currentUser
@@ -329,7 +336,7 @@ const UserFormPage = () => {
       subtitle={
         isEditing
           ? "Update staff contact details, assigned system role and fine-grained module privileges"
-          : "Register a new internal staff account directly in Firebase Authentication and configure granular access control"
+          : "Register a new internal staff member with Registered Mobile Number + Password credentials"
       }
       backTo="/users"
       backLabel="Users & Staff"
@@ -337,10 +344,11 @@ const UserFormPage = () => {
       onDiscard={() => setShowDiscard(true)}
     >
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Section 1: Personal & Contact Information */}
+        {/* Section 1: Personal Information */}
         <FormSection
-          title="Personal & Employment Information"
-          description="Basic employee identity, corporate email credentials and assigned physical retail store"
+          title="Section 1 — Personal Information"
+          description="Employee identity, mobile login identifier and assigned store branch"
+          icon={User}
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input
@@ -352,33 +360,6 @@ const UserFormPage = () => {
               error={errors.name}
             />
 
-            <Input
-              label="Email Address (Login Username)"
-              required
-              type="email"
-              disabled={isEditing}
-              value={form.email}
-              onChange={(e) => handleChange("email", e.target.value)}
-              placeholder="e.g. ramesh.verma@adityavision.com"
-              helperText={
-                isEditing
-                  ? "Authentication email is permanent and cannot be modified."
-                  : "Used by the staff member to log in to the application."
-              }
-              error={errors.email}
-            />
-
-            <Input
-              label="Mobile Number"
-              required
-              type="tel"
-              value={form.mobile}
-              onChange={(e) => handleChange("mobile", e.target.value)}
-              placeholder="e.g. 9876543210"
-              helperText="10-digit Indian mobile number"
-              error={errors.mobile}
-            />
-
             <Select
               label="Assigned Store / Distribution Hub"
               value={form.store}
@@ -388,80 +369,132 @@ const UserFormPage = () => {
                 label: loc,
               }))}
             />
-          </div>
 
-          {!isEditing && (
-            <div className="mt-4 pt-4 border-t border-[#E5E7EB]">
-              <div className="mb-3">
-                <span className="text-xs font-bold text-[#202124] uppercase tracking-wider block">
-                  Initial Authentication Password
+            <div>
+              <label className="block text-xs font-semibold text-[#202124] mb-1.5">
+                Registered Mobile Number (Login ID) <span className="text-[#E53935]">*</span>
+              </label>
+              <div className="relative flex items-center">
+                <span className="inline-flex items-center px-3.5 h-10 text-xs font-bold text-[#374151] bg-gray-50 border border-r-0 border-[#E5E7EB] rounded-l-lg select-none">
+                  +91
                 </span>
-                <span className="text-xs text-[#6B7280]">
-                  Set a temporary password. The staff member can use this to sign in immediately or request a reset email.
-                </span>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={form.mobile}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                    handleChange("mobile", digits);
+                  }}
+                  placeholder="9876543210"
+                  className={`w-full h-10 px-3.5 rounded-r-lg text-sm bg-white border transition-colors outline-none placeholder:text-gray-400 font-mono ${
+                    errors.mobile
+                      ? "border-[#DC2626] focus:border-[#DC2626] focus:ring-1 focus:ring-[#DC2626]"
+                      : "border-[#E5E7EB] focus:border-[#E53935] focus:ring-1 focus:ring-[#E53935]"
+                  }`}
+                />
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="relative">
-                  <Input
-                    label="Initial Password"
-                    required
-                    type={showPassword ? "text" : "password"}
-                    value={form.password}
-                    onChange={(e) => handleChange("password", e.target.value)}
-                    placeholder="Minimum 6 characters"
-                    error={errors.password}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-9 text-[#6B7280] hover:text-[#202124]"
-                    tabIndex={-1}
-                  >
-                    {showPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-
-                <div className="relative">
-                  <Input
-                    label="Confirm Initial Password"
-                    required
-                    type={showConfirmPassword ? "text" : "password"}
-                    value={form.confirmPassword}
-                    onChange={(e) =>
-                      handleChange("confirmPassword", e.target.value)
-                    }
-                    placeholder="Re-enter initial password"
-                    error={errors.confirmPassword}
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setShowConfirmPassword(!showConfirmPassword)
-                    }
-                    className="absolute right-3 top-9 text-[#6B7280] hover:text-[#202124]"
-                    tabIndex={-1}
-                  >
-                    {showConfirmPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
+              {errors.mobile ? (
+                <p className="text-xs text-[#DC2626] mt-1">{errors.mobile}</p>
+              ) : (
+                <p className="text-[11px] text-[#6B7280] mt-1">
+                  Primary 10-digit login identifier for this staff member.
+                </p>
+              )}
             </div>
-          )}
+
+            <Input
+              label="Corporate Email Address (Optional)"
+              type="email"
+              value={form.email}
+              onChange={(e) => handleChange("email", e.target.value)}
+              placeholder="e.g. ramesh.verma@adityavision.com"
+              helperText="Optional email address for employee record-keeping and corporate notifications."
+              error={errors.email}
+            />
+          </div>
         </FormSection>
 
-        {/* Section 2: Role & Account Status */}
+        {/* Section 2: Login Credentials (Only for new account creation) */}
+        {!isEditing ? (
+          <FormSection
+            title="Section 2 — Login Credentials"
+            description="Initial password credentials for Mobile Number + Password authentication"
+            icon={KeyRound}
+          >
+            <div className="p-3.5 mb-4 rounded-xl bg-red-50/60 border border-red-100 flex items-start gap-3">
+              <ShieldCheck className="w-5 h-5 text-[#E53935] shrink-0 mt-0.5" />
+              <div>
+                <span className="text-xs font-bold text-[#202124] uppercase tracking-wide block">
+                  Mobile Number + Password Authentication Active
+                </span>
+                <p className="text-xs text-[#4B5563] mt-0.5 leading-relaxed">
+                  The staff member will log into Aditya Vision Portal using their registered 10-digit mobile number and this password. No SMS OTP is required.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="relative">
+                <Input
+                  label="Initial Password"
+                  required
+                  type={showPassword ? "text" : "password"}
+                  value={form.password}
+                  onChange={(e) => handleChange("password", e.target.value)}
+                  placeholder="Minimum 6 characters"
+                  error={errors.password}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-9 text-[#6B7280] hover:text-[#202124] cursor-pointer"
+                  tabIndex={-1}
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+
+              <div className="relative">
+                <Input
+                  label="Confirm Initial Password"
+                  required
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={form.confirmPassword}
+                  onChange={(e) =>
+                    handleChange("confirmPassword", e.target.value)
+                  }
+                  placeholder="Re-enter initial password"
+                  error={errors.confirmPassword}
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowConfirmPassword(!showConfirmPassword)
+                  }
+                  className="absolute right-3 top-9 text-[#6B7280] hover:text-[#202124] cursor-pointer"
+                  tabIndex={-1}
+                >
+                  {showConfirmPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </FormSection>
+        ) : null}
+
+        {/* Section 3: System Role & Account State */}
         <FormSection
-          title="System Role & Account State"
-          description="Assign a predefined role preset and control whether this account can currently authenticate"
+          title="Section 3 — System Role & Account State"
+          description="Assign a system role preset and control whether this account can currently authenticate"
+          icon={Shield}
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -496,10 +529,11 @@ const UserFormPage = () => {
           </div>
         </FormSection>
 
-        {/* Section 3: Granular Permissions Matrix */}
+        {/* Section 4: Granular Module Permissions */}
         <FormSection
-          title="Granular Module Permissions"
-          description="Select exactly which features and operations this staff member is authorized to execute"
+          title="Section 4 — Granular Module Permissions"
+          description="Configure individual fine-grained module privileges for this staff member"
+          icon={Layers}
         >
           {errors.permissions && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-[#DC2626] flex items-center gap-2">
@@ -525,21 +559,21 @@ const UserFormPage = () => {
               <button
                 type="button"
                 onClick={handleSelectAll}
-                className="px-2.5 py-1 text-xs font-medium text-[#202124] bg-white border border-[#D1D5DB] rounded-lg hover:bg-gray-50 transition-colors"
+                className="px-2.5 py-1 text-xs font-medium text-[#202124] bg-white border border-[#D1D5DB] rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
               >
                 Select All
               </button>
               <button
                 type="button"
                 onClick={handleClearAll}
-                className="px-2.5 py-1 text-xs font-medium text-[#DC2626] bg-white border border-[#D1D5DB] rounded-lg hover:bg-red-50 transition-colors"
+                className="px-2.5 py-1 text-xs font-medium text-[#DC2626] bg-white border border-[#D1D5DB] rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
               >
                 Clear All
               </button>
               <button
                 type="button"
                 onClick={handleResetToRoleDefaults}
-                className="px-2.5 py-1 text-xs font-medium text-[#2563EB] bg-white border border-[#D1D5DB] rounded-lg hover:bg-blue-50 transition-colors flex items-center gap-1"
+                className="px-2.5 py-1 text-xs font-medium text-[#2563EB] bg-white border border-[#D1D5DB] rounded-lg hover:bg-blue-50 transition-colors flex items-center gap-1 cursor-pointer"
               >
                 <RotateCcw className="w-3 h-3" /> Reset to Role Defaults
               </button>
@@ -607,10 +641,11 @@ const UserFormPage = () => {
                       return (
                         <label
                           key={perm.key}
-                          className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${isChecked
-                            ? "bg-red-50/40 border-[#FECACA] text-[#202124]"
-                            : "bg-white border-[#E5E7EB] text-[#6B7280] hover:border-gray-300"
-                            }`}
+                          className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                            isChecked
+                              ? "bg-red-50/40 border-[#FECACA] text-[#202124]"
+                              : "bg-white border-[#E5E7EB] text-[#6B7280] hover:border-gray-300"
+                          }`}
                         >
                           <input
                             type="checkbox"
@@ -621,8 +656,9 @@ const UserFormPage = () => {
                           <div className="flex-1">
                             <div className="flex items-center gap-1.5">
                               <span
-                                className={`text-xs font-bold ${isChecked ? "text-[#202124]" : "text-[#4B5563]"
-                                  }`}
+                                className={`text-xs font-bold ${
+                                  isChecked ? "text-[#202124]" : "text-[#4B5563]"
+                                }`}
                               >
                                 {perm.label}
                               </span>
@@ -674,7 +710,7 @@ const UserFormPage = () => {
                 : "Provisioning Account..."
               : isEditing
                 ? "Save User Changes"
-                : "Provision Staff Account"}
+                : "CREATE STAFF ACCOUNT"}
           </Button>
         </div>
       </form>

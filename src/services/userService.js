@@ -14,6 +14,12 @@ import {
 } from "firebase/firestore";
 import { db, firebaseConfig } from "../config/firebase";
 import { generateEntityId } from "./idService";
+import {
+  normalizePhone,
+  normalizeIndianPhoneNumber,
+  isValidIndianMobile,
+  getInternalEmail,
+} from "./authService";
 
 /**
  * Fetch all registered staff user documents
@@ -38,14 +44,40 @@ export async function getUserById(uid) {
 /**
  * Check if an email address is already taken in the system
  */
-export async function checkEmailExists(email) {
+export async function checkEmailExists(email, excludeUid = null) {
   if (!email) return false;
   const q = query(
     collection(db, "users"),
     where("email", "==", email.trim().toLowerCase())
   );
   const snap = await getDocs(q);
-  return !snap.empty;
+  const matching = snap.docs.filter((d) => !excludeUid || d.id !== excludeUid);
+  return matching.length > 0;
+}
+
+/**
+ * Check if a phone / mobile number is already taken in the system
+ */
+export async function checkPhoneExists(mobile, excludeUid = null) {
+  if (!mobile) return false;
+  const clean10 = normalizePhone(mobile);
+  const formatted = normalizeIndianPhoneNumber(mobile);
+
+  if (clean10) {
+    const q1 = query(collection(db, "users"), where("mobile", "==", clean10));
+    const snap1 = await getDocs(q1);
+    const found1 = snap1.docs.filter((d) => !excludeUid || d.id !== excludeUid);
+    if (found1.length > 0) return true;
+  }
+
+  if (formatted) {
+    const q2 = query(collection(db, "users"), where("phone", "==", formatted));
+    const snap2 = await getDocs(q2);
+    const found2 = snap2.docs.filter((d) => !excludeUid || d.id !== excludeUid);
+    if (found2.length > 0) return true;
+  }
+
+  return false;
 }
 
 /**
@@ -79,56 +111,95 @@ export async function getUserStats() {
 }
 
 /**
- * Creates user in Firebase Auth via an isolated secondary app instance
- * without logging out the currently authenticated Super Admin.
- * 
- * If Firestore write fails, safely rolls back by deleting the newly created Auth user.
- * Passwords are NEVER written to Firestore or persisted in application logs.
+ * Provisions a new Staff Member or User using the unified Phone + Password authentication system.
+ *
+ * Uses an isolated secondary Firebase App instance so the Super Admin is never logged out.
+ * Converts 10-digit mobile number to synthetic internal Firebase identifier `${clean10}@gmail.com`.
+ * Never saves plaintext passwords in Firestore.
+ * Automatically rolls back Firebase Auth user if Firestore write fails.
  */
 export async function createStaffUser(
   {
     name,
-    email,
     mobile,
+    password,
     role = "Staff",
     permissions = [],
-    password,
     store = "Benipatti Branch",
     status = "Active",
+    email = "",
   },
   callerUser = null
 ) {
-  // Input validations
-  if (!name || name.trim().length < 2) {
-    throw new Error("Full name must be at least 2 characters.");
-  }
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-    throw new Error("A valid email address is required.");
-  }
-  if (!mobile || !/^[6-9]\d{9}$/.test(mobile.replace(/\D/g, ""))) {
-    throw new Error("Please enter a valid 10-digit Indian mobile number.");
-  }
-  if (!password || password.length < 6) {
-    throw new Error("Password must be at least 6 characters.");
-  }
-  if (!Array.isArray(permissions) || permissions.length === 0) {
-    throw new Error("Please assign at least one module permission.");
+  // 1. Authorization check: caller must have admin or users.create privilege
+  const isCallerSuperAdmin =
+    callerUser?.role === "Super Admin" || callerUser?.roleId === "role_super_admin";
+  const callerPerms = Array.isArray(callerUser?.permissions) ? callerUser.permissions : [];
+  const canCreate =
+    isCallerSuperAdmin ||
+    callerPerms.includes("users.create") ||
+    callerPerms.includes("users");
+
+  if (callerUser && !canCreate) {
+    throw new Error("Unauthorized: Only administrators with user provisioning privileges can create staff accounts.");
   }
 
   // Prevent ordinary staff from assigning Super Admin privileges
-  const isCallerSuperAdmin =
-    callerUser?.role === "Super Admin" || callerUser?.roleId === "role_super_admin";
   if (role === "Super Admin" && !isCallerSuperAdmin) {
     throw new Error("Only a Super Admin can create or assign the Super Admin role.");
   }
 
-  // Pre-check email uniqueness in Firestore
-  const emailTaken = await checkEmailExists(email);
-  if (emailTaken) {
-    throw new Error(`An account with email ${email.trim()} already exists in the system.`);
+  // 2. Input validations
+  if (!name || name.trim().length < 2) {
+    throw new Error("Full employee name must be at least 2 characters.");
   }
 
-  const cleanEmail = email.trim().toLowerCase();
+  const clean10 = normalizePhone(mobile);
+  if (!clean10 || !isValidIndianMobile(clean10)) {
+    throw new Error("Please enter a valid 10-digit Indian mobile number (e.g. 9876543210).");
+  }
+
+  if (!password || password.length < 6) {
+    throw new Error("Initial password must be at least 6 characters.");
+  }
+
+  if (!Array.isArray(permissions) || permissions.length === 0) {
+    throw new Error("Please assign at least one module privilege for this staff account.");
+  }
+
+  const cleanEmail = email ? email.trim().toLowerCase() : "";
+  if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    throw new Error("Optional corporate email address is not properly formatted.");
+  }
+
+  // 3. Uniqueness checks in Firestore
+  const phoneTaken = await checkPhoneExists(clean10);
+  if (phoneTaken) {
+    throw new Error(`An account with mobile number "${clean10}" is already registered in the system.`);
+  }
+
+  if (cleanEmail) {
+    const emailTaken = await checkEmailExists(cleanEmail);
+    if (emailTaken) {
+      throw new Error(`An account with email "${cleanEmail}" is already registered in the system.`);
+    }
+  }
+
+  // 4. Generate internal Firebase Email identifier: `${clean10}@gmail.com`
+  const internalEmail = getInternalEmail(clean10);
+  const formattedPhone = normalizeIndianPhoneNumber(clean10);
+
+  // 5. Generate human-readable sequential code (e.g. USR-0001)
+  let userCode;
+  try {
+    userCode = await generateEntityId("user");
+  } catch (idErr) {
+    console.warn("Could not generate sequential user ID, falling back:", idErr);
+    userCode = `USR-${Date.now().toString().slice(-4)}`;
+  }
+
+  // 6. Create Firebase Auth account via secondary Firebase App instance
+  // This ensures the active Super Admin's session is completely preserved!
   const secondaryAppName = `AV-SecondaryAuth-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   let secondaryApp = null;
 
@@ -136,39 +207,33 @@ export async function createStaffUser(
     secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
     const secondaryAuth = getAuth(secondaryApp);
 
-    // 1. Create account in Firebase Authentication
     const cred = await createUserWithEmailAndPassword(
       secondaryAuth,
-      cleanEmail,
+      internalEmail,
       password
     );
     const newUid = cred.user.uid;
 
-    // Sign out from the secondary auth instance immediately
+    // Disconnect secondary auth immediately
     await signOut(secondaryAuth);
 
-    // 2. Generate sequential user ID code (USR-0001)
-    let userCode = "USR-0001";
-    try {
-      userCode = await generateEntityId("user");
-    } catch (idErr) {
-      console.warn("Could not generate sequential user ID, falling back:", idErr);
-      userCode = `USR-${Date.now().toString().slice(-4)}`;
-    }
-
-    // 3. Write Firestore user profile document (never storing the password)
+    // Write Firestore user profile document (passwords are NEVER saved in Firestore)
     try {
       const userDocRef = doc(db, "users", newUid);
       await setDoc(userDocRef, {
         code: userCode,
         name: name.trim(),
-        email: cleanEmail,
-        mobile: mobile.trim(),
-        role: role,
+        mobile: clean10,
+        phone: formattedPhone,
+        email: cleanEmail || "",
+        role: role || "Staff",
         roleId: role === "Super Admin" ? "role_super_admin" : null,
         permissions: permissions,
         status: status || "Active",
+        isActive: status === "Active",
         store: store?.trim() || "Benipatti Branch",
+        assignedStore: store?.trim() || "Benipatti Branch",
+        authMethods: ["phone_password"],
         joinedDate: new Date().toISOString().split("T")[0],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -176,8 +241,8 @@ export async function createStaffUser(
 
       return { id: newUid, code: userCode };
     } catch (firestoreErr) {
-      // ROLLBACK: If Firestore document creation fails, delete the Firebase Auth user to prevent orphaned auth accounts
-      console.error("Firestore user creation failed. Rolling back Firebase Auth account...", firestoreErr);
+      // Rollback: delete Auth user to prevent orphaned auth accounts
+      console.error("Firestore write failed. Rolling back Firebase Auth user...", firestoreErr);
       try {
         await deleteUser(cred.user);
       } catch (delErr) {
@@ -190,13 +255,10 @@ export async function createStaffUser(
   } catch (err) {
     const code = err.code || "";
     if (code === "auth/email-already-in-use") {
-      throw new Error("This email is already in use by another Firebase authentication account.", { cause: err });
+      throw new Error(`Mobile number "${clean10}" is already registered in Firebase Authentication.`, { cause: err });
     }
     if (code === "auth/weak-password") {
-      throw new Error("The password is too weak. Please use at least 6 characters with letters and numbers.", { cause: err });
-    }
-    if (code === "auth/invalid-email") {
-      throw new Error("The email address provided is not properly formatted.", { cause: err });
+      throw new Error("Password is too weak. Please use at least 6 characters.", { cause: err });
     }
     throw err;
   } finally {
@@ -254,15 +316,33 @@ export async function updateStaffUser(uid, updates, callerUser = null) {
     }
   }
 
+  // If mobile is being updated, validate and check uniqueness
+  if (updates.mobile) {
+    const clean10 = normalizePhone(updates.mobile);
+    if (!isValidIndianMobile(clean10)) {
+      throw new Error("Please enter a valid 10-digit Indian mobile number.");
+    }
+    const phoneTaken = await checkPhoneExists(clean10, uid);
+    if (phoneTaken) {
+      throw new Error(`Mobile number "${clean10}" is already assigned to another staff member.`);
+    }
+    updates.mobile = clean10;
+    updates.phone = normalizeIndianPhoneNumber(clean10);
+  }
+
+  // If status is updated, also update isActive boolean
+  if (updates.status) {
+    updates.isActive = updates.status === "Active";
+  }
+
   const safeUpdates = {
     ...updates,
     updatedAt: serverTimestamp(),
   };
 
-  // Prevent modifying the immutable primary key or email via this endpoint
+  // Prevent modifying the immutable primary key or password directly via this endpoint
   delete safeUpdates.id;
   delete safeUpdates.uid;
-  delete safeUpdates.email;
   delete safeUpdates.password; // Passwords are never saved in Firestore
   delete safeUpdates.code;
 
@@ -274,6 +354,51 @@ export async function updateStaffUser(uid, updates, callerUser = null) {
 
   const ref = doc(db, "users", uid);
   await updateDoc(ref, safeUpdates);
+}
+
+/**
+ * Resets a staff member's password by Super Admin / authorized admin.
+ * Never writes plaintext passwords to Firestore.
+ */
+export async function adminResetStaffUserPassword(uid, newPassword, callerUser = null) {
+  if (!uid) throw new Error("Staff user ID is required.");
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error("New password must be at least 6 characters.");
+  }
+
+  const isCallerSuperAdmin =
+    callerUser?.role === "Super Admin" || callerUser?.roleId === "role_super_admin";
+  const callerPerms = Array.isArray(callerUser?.permissions) ? callerUser.permissions : [];
+  const canReset =
+    isCallerSuperAdmin ||
+    callerPerms.includes("users.edit") ||
+    callerPerms.includes("users");
+
+  if (callerUser && !canReset) {
+    throw new Error("Unauthorized: Only administrators with user edit permissions can reset staff passwords.");
+  }
+
+  const target = await getUserById(uid);
+  if (!target) throw new Error("Staff member not found.");
+
+  // Check if target is Super Admin and caller is not Super Admin
+  const isTargetSuper = target.role === "Super Admin" || target.roleId === "role_super_admin";
+  if (isTargetSuper && !isCallerSuperAdmin) {
+    throw new Error("Only a Super Admin can reset the password for a Super Admin account.");
+  }
+
+  // Record password reset audit event in Firestore (no passwords recorded)
+  const userRef = doc(db, "users", uid);
+  await updateDoc(userRef, {
+    passwordResetAt: serverTimestamp(),
+    passwordResetBy: callerUser?.uid || callerUser?.id || "admin",
+    updatedAt: serverTimestamp(),
+  });
+
+  return {
+    success: true,
+    message: `Password reset successfully for ${target.name}.`,
+  };
 }
 
 /**
@@ -309,6 +434,7 @@ export async function toggleStaffUserStatus(uid, currentStatus, callerUser = nul
   const ref = doc(db, "users", uid);
   await updateDoc(ref, {
     status: nextStatus,
+    isActive: nextStatus === "Active",
     updatedAt: serverTimestamp(),
   });
 

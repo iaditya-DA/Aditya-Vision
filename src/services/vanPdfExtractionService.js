@@ -45,6 +45,194 @@ export function extractSearchTokens(cellText = "") {
   );
 }
 
+/**
+ * Computes SHA-256 hash of a PDF array buffer for same-PDF detection
+ */
+export async function computePdfHash(arrayBuffer) {
+  if (!arrayBuffer) return "";
+  if (typeof crypto !== "undefined" && crypto.subtle) {
+    try {
+      const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    } catch (err) {
+      console.warn("crypto.subtle.digest failed:", err);
+    }
+  }
+  // Fast 64-bit combined hash fallback if WebCrypto unavailable in test or older env
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  const bytes = new Uint8Array(arrayBuffer);
+  for (let i = 0; i < bytes.length; i++) {
+    h1 = Math.imul(h1 ^ bytes[i], 2654435761);
+    h2 = Math.imul(h2 ^ bytes[i], 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+}
+
+/**
+ * Generates a stable unique identity string for a product
+ * Uses sanitized uppercase modelKey + normalized itemCode digits
+ * e.g. "GLC24B3XWAAGOUT_132341"
+ */
+export function getProductIdentity(item) {
+  if (!item) return "";
+  const code = normalizeItemCode(item.itemCode || "");
+  if (!code) return "";
+  const model = extractModelKey(item.modelKey || item.modelNumber || item.description || "");
+  const safeModel = (model || "item").replace(/[^A-Za-z0-9_-]/g, "").toUpperCase();
+  return `${safeModel}_${code}`;
+}
+
+/**
+ * Returns a canonical deterministic string representing all display, pricing,
+ * and search-relevant fields of a product, excluding volatile timestamps.
+ */
+export function getProductCanonicalString(item) {
+  if (!item) return "";
+  const modelKey = (item.modelKey || "").trim().toUpperCase();
+  const modelNumber = (item.modelNumber || "").trim();
+  const itemCode = normalizeItemCode(item.itemCode || "");
+  const description = (item.description || "").trim();
+
+  const tokens = Array.isArray(item.searchTokens)
+    ? [...item.searchTokens]
+        .map((t) => String(t || "").trim().toUpperCase())
+        .filter(Boolean)
+        .sort()
+        .join(",")
+    : "";
+
+  let extraStr = "";
+  if (item.extra && typeof item.extra === "object") {
+    const keys = Object.keys(item.extra).sort();
+    extraStr = keys
+      .map((k) => `${k}:${String(item.extra[k] || "").trim()}`)
+      .join("|");
+  }
+
+  const rawStr = Array.isArray(item.rawRow)
+    ? item.rawRow.map((c) => String(c || "").trim()).join("|")
+    : "";
+
+  return `${modelKey}#${modelNumber}#${itemCode}#${description}#${tokens}#${extraStr}#${rawStr}`;
+}
+
+/**
+ * Computes deterministic SHA-256 hash of a product's canonical representation
+ * Used for O(1) comparison between incoming PDF items and existing Firestore catalog items
+ */
+export async function computeProductHash(item) {
+  const canonical = getProductCanonicalString(item);
+  if (!canonical) return "";
+
+  if (typeof crypto !== "undefined" && crypto.subtle) {
+    try {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(canonical);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    } catch (err) {
+      console.warn("computeProductHash WebCrypto failed:", err);
+    }
+  }
+
+  // Fast 64-bit deterministic hash fallback
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < canonical.length; i++) {
+    const code = canonical.charCodeAt(i);
+    h1 = Math.imul(h1 ^ code, 2654435761);
+    h2 = Math.imul(h2 ^ code, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+}
+
+/**
+ * Computes multi-field similarity and confidence between two products
+ * Compares normalized Model Number, Item Code, Brand, Description and extra specs
+ * Returns: { confidence: number (0..100), matchType: string, reason: string }
+ */
+export function calculateProductSimilarity(itemA, itemB) {
+  if (!itemA || !itemB) return { confidence: 0, matchType: "NONE", reason: "Missing product" };
+
+  const codeA = normalizeItemCode(itemA.itemCode);
+  const codeB = normalizeItemCode(itemB.itemCode);
+  const modelA = extractModelKey(itemA.modelKey || itemA.modelNumber || itemA.description || "");
+  const modelB = extractModelKey(itemB.modelKey || itemB.modelNumber || itemB.description || "");
+
+  // 1. Exact Identity match (same modelKey and same itemCode)
+  if (codeA && codeB && codeA === codeB && modelA && modelB && modelA === modelB) {
+    return {
+      confidence: 100,
+      matchType: "EXACT_IDENTITY",
+      reason: `Exact match on Item Code (${codeA}) and Model (${modelA})`,
+    };
+  }
+
+  // 2. Same Item Code
+  if (codeA && codeB && codeA === codeB) {
+    if (modelA && modelB && (modelA.includes(modelB) || modelB.includes(modelA))) {
+      return {
+        confidence: 95,
+        matchType: "CODE_MATCH_SIMILAR_MODEL",
+        reason: `Same Item Code (${codeA}) with matching model variant (${modelA} vs ${modelB})`,
+      };
+    }
+    return {
+      confidence: 85,
+      matchType: "SAME_ITEM_CODE_DIFFERENT_MODEL",
+      reason: `Same Item Code (${codeA}), but different model text (${modelA || "N/A"} vs ${modelB || "N/A"})`,
+    };
+  }
+
+  // 3. Same Model Key
+  if (modelA && modelB && modelA === modelB) {
+    return {
+      confidence: 80,
+      matchType: "SAME_MODEL_DIFFERENT_CODE",
+      reason: `Same Model Number (${modelA}), but different Item Code (${codeA || "N/A"} vs ${codeB || "N/A"})`,
+    };
+  }
+
+  // 4. Token overlap on description & Brand
+  const tokensA = new Set(extractSearchTokens(itemA.description || itemA.modelNumber || ""));
+  const tokensB = new Set(extractSearchTokens(itemB.description || itemB.modelNumber || ""));
+
+  if (tokensA.size > 0 && tokensB.size > 0) {
+    let intersection = 0;
+    tokensA.forEach((t) => {
+      if (tokensB.has(t)) intersection++;
+    });
+    const union = new Set([...tokensA, ...tokensB]).size;
+    const jaccard = union > 0 ? intersection / union : 0;
+
+    const brandA = (itemA.extra?.Brand || itemA.extra?.brand || "").trim().toUpperCase();
+    const brandB = (itemB.extra?.Brand || itemB.extra?.brand || "").trim().toUpperCase();
+    const brandMatches = brandA && brandB && brandA === brandB;
+
+    if (jaccard >= 0.75 || (jaccard >= 0.5 && brandMatches)) {
+      const conf = Math.round(jaccard * 75 + (brandMatches ? 15 : 0));
+      return {
+        confidence: Math.min(75, conf),
+        matchType: "HIGH_DESCRIPTION_SIMILARITY",
+        reason: `High word overlap (${Math.round(jaccard * 100)}%) with existing product description`,
+      };
+    }
+  }
+
+  return {
+    confidence: 0,
+    matchType: "NONE",
+    reason: "No significant similarity found",
+  };
+}
+
 function mergeCoordinates(values, tolerance = 1.5) {
   if (!values || values.length === 0) return [];
   const sorted = [...values].sort((a, b) => a - b);
