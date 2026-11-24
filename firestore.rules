@@ -39,6 +39,14 @@ service cloud.firestore {
       );
     }
 
+    function canViewVan() {
+      return isAuthenticated() && (
+        isSuperAdmin() ||
+        hasPermission('van.view') ||
+        hasPermission('van')
+      );
+    }
+
     function isValidDeliveryImage(data) {
       return !('image' in data) ||
         data.image == null ||
@@ -156,6 +164,27 @@ service cloud.firestore {
       allow read: if isSuperAdmin();
       allow create: if isAuthenticated();
       allow update, delete: if false;
+    }
+
+    // VAN Number Module collections
+    match /vanCompanies/{companyKey} {
+      allow read: if canViewVan();
+      allow write: if isSuperAdmin();
+    }
+
+    match /vanPresets/{presetId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /vanUploads/{uploadId} {
+      allow read: if canViewVan();
+      allow write: if isSuperAdmin();
+
+      match /items/{itemId} {
+        allow read: if canViewVan();
+        allow write: if isSuperAdmin();
+        // `extra` field is optional and must be a map if present
+      }
     }
   }
 }

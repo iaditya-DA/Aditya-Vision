@@ -16,6 +16,8 @@ import {
   LogOut,
   User,
   Database,
+  Search,
+  FileSpreadsheet,
 } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import { subscribeUserNotifications, markNotificationAsRead, markAllNotificationsAsRead } from "../../services/notificationService";
@@ -103,6 +105,7 @@ const Navbar = () => {
   const canUsers = isSuperAdmin || hasPermission("users.view") || hasPermission("users");
   const canReports = isSuperAdmin || hasPermission("reports");
   const canSettings = isSuperAdmin || hasPermission("settings.view") || hasPermission("settings");
+  const canVan = isSuperAdmin || hasPermission("van.view") || hasPermission("van");
 
   // Group definitions with friendly one-line descriptions
   const operationsItems = [
@@ -117,6 +120,12 @@ const Navbar = () => {
       path: "/drivers",
       icon: Users,
       description: "Fleet driver roster, vehicles & wage balances",
+    },
+    canVan && {
+      name: "VAN Lookup",
+      path: "/van",
+      icon: Search,
+      description: "Model Number to Item Code search",
     },
   ].filter(Boolean);
 
@@ -160,21 +169,27 @@ const Navbar = () => {
       icon: Database,
       description: "Archive, purge & audit system records",
     },
+    isSuperAdmin && {
+      name: "VAN Management",
+      path: "/van/admin",
+      icon: FileSpreadsheet,
+      description: "Upload & publish company price-lists",
+    },
   ].filter(Boolean);
 
   // Active state helpers
   const isDashboardActive = location.pathname === "/dashboard";
-  const isOperationsActive = ["/deliveries", "/drivers"].includes(
-    location.pathname,
+  const isOperationsActive = ["/deliveries", "/drivers", "/van"].some(
+    (p) => location.pathname === p || (p !== "/van" && location.pathname.startsWith(p)),
   );
-  const isFinanceActive = ["/payment-requests", "/payment-history"].includes(
-    location.pathname,
+  const isFinanceActive = ["/payment-requests", "/payment-history"].some((p) =>
+    location.pathname.startsWith(p),
   );
   const isAdminActive = [
     "/users",
     "/reports",
     "/settings",
-    "/settings/data-management",
+    "/van/admin",
   ].some((p) => location.pathname.startsWith(p));
 
   const toggleDropdown = (key) => {
@@ -221,10 +236,9 @@ const Navbar = () => {
                 onClick={closeAllMenus}
                 className={`
                   relative py-2 text-sm sm:text-base font-semibold transition-all duration-150
-                  ${
-                    isDashboardActive
-                      ? "text-[#202124] font-bold after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[#202124]"
-                      : "text-[#6B7280] hover:text-[#202124]"
+                  ${isDashboardActive
+                    ? "text-[#202124] font-bold after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[#202124]"
+                    : "text-[#6B7280] hover:text-[#202124]"
                   }
                 `}
               >
@@ -246,19 +260,17 @@ const Navbar = () => {
                   }}
                   className={`
                     relative py-2 text-sm sm:text-base font-semibold transition-all duration-150 inline-flex items-center gap-1 cursor-pointer
-                    ${
-                      isOperationsActive
-                        ? "text-[#202124] font-bold after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[#202124]"
-                        : "text-[#6B7280] hover:text-[#202124]"
+                    ${isOperationsActive
+                      ? "text-[#202124] font-bold after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[#202124]"
+                      : "text-[#6B7280] hover:text-[#202124]"
                     }
                   `}
                   aria-expanded={openDropdown === "operations"}
                 >
                   <span>Operations</span>
                   <ChevronDown
-                    className={`w-3.5 h-3.5 transition-transform duration-150 ${
-                      openDropdown === "operations" ? "rotate-180" : ""
-                    }`}
+                    className={`w-3.5 h-3.5 transition-transform duration-150 ${openDropdown === "operations" ? "rotate-180" : ""
+                      }`}
                   />
                 </button>
 
@@ -275,20 +287,18 @@ const Navbar = () => {
                             onClick={closeAllMenus}
                             className={`
                               flex items-start gap-3 p-2.5 rounded-xl transition-all
-                              ${
-                                isActive
-                                  ? "bg-[#FFF1F0] text-[#E53935]"
-                                  : "text-[#202124] hover:bg-gray-50"
+                              ${isActive
+                                ? "bg-[#FFF1F0] text-[#E53935]"
+                                : "text-[#202124] hover:bg-gray-50"
                               }
                             `}
                           >
                             <div
                               className={`
                                 w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5
-                                ${
-                                  isActive
-                                    ? "bg-[#E53935] text-white"
-                                    : "bg-gray-100 text-[#6B7280]"
+                                ${isActive
+                                  ? "bg-[#E53935] text-white"
+                                  : "bg-gray-100 text-[#6B7280]"
                                 }
                               `}
                             >
@@ -296,9 +306,8 @@ const Navbar = () => {
                             </div>
                             <div className="min-w-0">
                               <div
-                                className={`text-xs font-bold ${
-                                  isActive ? "text-[#E53935]" : "text-[#202124]"
-                                }`}
+                                className={`text-xs font-bold ${isActive ? "text-[#E53935]" : "text-[#202124]"
+                                  }`}
                               >
                                 {item.name}
                               </div>
@@ -329,19 +338,17 @@ const Navbar = () => {
                   }}
                   className={`
                     relative py-2 text-sm sm:text-base font-semibold transition-all duration-150 inline-flex items-center gap-1 cursor-pointer
-                    ${
-                      isFinanceActive
-                        ? "text-[#202124] font-bold after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[#202124]"
-                        : "text-[#6B7280] hover:text-[#202124]"
+                    ${isFinanceActive
+                      ? "text-[#202124] font-bold after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[#202124]"
+                      : "text-[#6B7280] hover:text-[#202124]"
                     }
                   `}
                   aria-expanded={openDropdown === "finance"}
                 >
                   <span>Finance</span>
                   <ChevronDown
-                    className={`w-3.5 h-3.5 transition-transform duration-150 ${
-                      openDropdown === "finance" ? "rotate-180" : ""
-                    }`}
+                    className={`w-3.5 h-3.5 transition-transform duration-150 ${openDropdown === "finance" ? "rotate-180" : ""
+                      }`}
                   />
                 </button>
 
@@ -358,20 +365,18 @@ const Navbar = () => {
                             onClick={closeAllMenus}
                             className={`
                               flex items-start gap-3 p-2.5 rounded-xl transition-all
-                              ${
-                                isActive
-                                  ? "bg-[#FFF1F0] text-[#E53935]"
-                                  : "text-[#202124] hover:bg-gray-50"
+                              ${isActive
+                                ? "bg-[#FFF1F0] text-[#E53935]"
+                                : "text-[#202124] hover:bg-gray-50"
                               }
                             `}
                           >
                             <div
                               className={`
                                 w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5
-                                ${
-                                  isActive
-                                    ? "bg-[#E53935] text-white"
-                                    : "bg-gray-100 text-[#6B7280]"
+                                ${isActive
+                                  ? "bg-[#E53935] text-white"
+                                  : "bg-gray-100 text-[#6B7280]"
                                 }
                               `}
                             >
@@ -379,9 +384,8 @@ const Navbar = () => {
                             </div>
                             <div className="min-w-0">
                               <div
-                                className={`text-xs font-bold ${
-                                  isActive ? "text-[#E53935]" : "text-[#202124]"
-                                }`}
+                                className={`text-xs font-bold ${isActive ? "text-[#E53935]" : "text-[#202124]"
+                                  }`}
                               >
                                 {item.name}
                               </div>
@@ -412,19 +416,17 @@ const Navbar = () => {
                   }}
                   className={`
                     relative py-2 text-sm sm:text-base font-semibold transition-all duration-150 inline-flex items-center gap-1 cursor-pointer
-                    ${
-                      isAdminActive
-                        ? "text-[#202124] font-bold after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[#202124]"
-                        : "text-[#6B7280] hover:text-[#202124]"
+                    ${isAdminActive
+                      ? "text-[#202124] font-bold after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[#202124]"
+                      : "text-[#6B7280] hover:text-[#202124]"
                     }
                   `}
                   aria-expanded={openDropdown === "admin"}
                 >
                   <span>Administration</span>
                   <ChevronDown
-                    className={`w-3.5 h-3.5 transition-transform duration-150 ${
-                      openDropdown === "admin" ? "rotate-180" : ""
-                    }`}
+                    className={`w-3.5 h-3.5 transition-transform duration-150 ${openDropdown === "admin" ? "rotate-180" : ""
+                      }`}
                   />
                 </button>
 
@@ -441,20 +443,18 @@ const Navbar = () => {
                             onClick={closeAllMenus}
                             className={`
                               flex items-start gap-3 p-2.5 rounded-xl transition-all
-                              ${
-                                isActive
-                                  ? "bg-[#FFF1F0] text-[#E53935]"
-                                  : "text-[#202124] hover:bg-gray-50"
+                              ${isActive
+                                ? "bg-[#FFF1F0] text-[#E53935]"
+                                : "text-[#202124] hover:bg-gray-50"
                               }
                             `}
                           >
                             <div
                               className={`
                                 w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5
-                                ${
-                                  isActive
-                                    ? "bg-[#E53935] text-white"
-                                    : "bg-gray-100 text-[#6B7280]"
+                                ${isActive
+                                  ? "bg-[#E53935] text-white"
+                                  : "bg-gray-100 text-[#6B7280]"
                                 }
                               `}
                             >
@@ -462,9 +462,8 @@ const Navbar = () => {
                             </div>
                             <div className="min-w-0">
                               <div
-                                className={`text-xs font-bold ${
-                                  isActive ? "text-[#E53935]" : "text-[#202124]"
-                                }`}
+                                className={`text-xs font-bold ${isActive ? "text-[#E53935]" : "text-[#202124]"
+                                  }`}
                               >
                                 {item.name}
                               </div>
@@ -586,10 +585,10 @@ const Navbar = () => {
               <div className="w-8 h-8 rounded-full bg-[#E53935] text-white font-bold text-xs flex items-center justify-center shadow-2xs">
                 {user?.name
                   ? user.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .slice(0, 2)
-                      .join("")
+                    .split(" ")
+                    .map((n) => n[0])
+                    .slice(0, 2)
+                    .join("")
                   : "AV"}
               </div>
               <ChevronDown className="w-3.5 h-3.5 text-[#6B7280]" />
@@ -688,10 +687,9 @@ const Navbar = () => {
                 onClick={closeAllMenus}
                 className={`
                   flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors
-                  ${
-                    isDashboardActive
-                      ? "bg-[#E53935] text-white shadow-2xs"
-                      : "text-[#202124] hover:bg-gray-50"
+                  ${isDashboardActive
+                    ? "bg-[#E53935] text-white shadow-2xs"
+                    : "text-[#202124] hover:bg-gray-50"
                   }
                 `}
               >
@@ -707,10 +705,9 @@ const Navbar = () => {
                   onClick={() => toggleMobileAccordion("operations")}
                   className={`
                     w-full flex items-center justify-between px-4 py-2.5 text-sm font-bold transition-colors
-                    ${
-                      isOperationsActive
-                        ? "text-[#E53935] bg-[#FFF1F0]/60"
-                        : "text-[#202124] bg-gray-50/70"
+                    ${isOperationsActive
+                      ? "text-[#E53935] bg-[#FFF1F0]/60"
+                      : "text-[#202124] bg-gray-50/70"
                     }
                   `}
                 >
@@ -733,10 +730,9 @@ const Navbar = () => {
                           onClick={closeAllMenus}
                           className={`
                             flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-colors
-                            ${
-                              isActive
-                                ? "bg-[#FFF1F0] text-[#E53935]"
-                                : "text-[#202124] hover:bg-gray-50"
+                            ${isActive
+                              ? "bg-[#FFF1F0] text-[#E53935]"
+                              : "text-[#202124] hover:bg-gray-50"
                             }
                           `}
                         >
@@ -758,10 +754,9 @@ const Navbar = () => {
                   onClick={() => toggleMobileAccordion("finance")}
                   className={`
                     w-full flex items-center justify-between px-4 py-2.5 text-sm font-bold transition-colors
-                    ${
-                      isFinanceActive
-                        ? "text-[#E53935] bg-[#FFF1F0]/60"
-                        : "text-[#202124] bg-gray-50/70"
+                    ${isFinanceActive
+                      ? "text-[#E53935] bg-[#FFF1F0]/60"
+                      : "text-[#202124] bg-gray-50/70"
                     }
                   `}
                 >
@@ -784,10 +779,9 @@ const Navbar = () => {
                           onClick={closeAllMenus}
                           className={`
                             flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-colors
-                            ${
-                              isActive
-                                ? "bg-[#FFF1F0] text-[#E53935]"
-                                : "text-[#202124] hover:bg-gray-50"
+                            ${isActive
+                              ? "bg-[#FFF1F0] text-[#E53935]"
+                              : "text-[#202124] hover:bg-gray-50"
                             }
                           `}
                         >
@@ -809,10 +803,9 @@ const Navbar = () => {
                   onClick={() => toggleMobileAccordion("admin")}
                   className={`
                     w-full flex items-center justify-between px-4 py-2.5 text-sm font-bold transition-colors
-                    ${
-                      isAdminActive
-                        ? "text-[#E53935] bg-[#FFF1F0]/60"
-                        : "text-[#202124] bg-gray-50/70"
+                    ${isAdminActive
+                      ? "text-[#E53935] bg-[#FFF1F0]/60"
+                      : "text-[#202124] bg-gray-50/70"
                     }
                   `}
                 >
@@ -835,10 +828,9 @@ const Navbar = () => {
                           onClick={closeAllMenus}
                           className={`
                             flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-colors
-                            ${
-                              isActive
-                                ? "bg-[#FFF1F0] text-[#E53935]"
-                                : "text-[#202124] hover:bg-gray-50"
+                            ${isActive
+                              ? "bg-[#FFF1F0] text-[#E53935]"
+                              : "text-[#202124] hover:bg-gray-50"
                             }
                           `}
                         >

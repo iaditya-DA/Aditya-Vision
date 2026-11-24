@@ -80,6 +80,14 @@ export const MODULE_PERMISSIONS = {
       { key: "settings.edit", label: "Edit Settings", description: "Update delivery fee rates and business policies" },
     ],
   },
+  van: {
+    label: "VAN Number Management",
+    description: "Lookup item codes from model numbers and manage company catalogues",
+    permissions: [
+      { key: "van.view", label: "View VAN Lookup", description: "Search model numbers and lookup item codes" },
+      { key: "van.manage", label: "Manage VAN Catalogues", description: "Upload PDF price lists, configure presets and publish item codes", sensitive: true },
+    ],
+  },
 };
 
 /**
@@ -124,6 +132,7 @@ export const SYSTEM_ROLES = [
       "reports.view",
       "reports.export",
       "users.view",
+      "van.view",
     ],
     isSystem: true,
   },
@@ -137,6 +146,7 @@ export const SYSTEM_ROLES = [
       "deliveries.create",
       "deliveries.edit",
       "drivers.view",
+      "van.view",
     ],
     isSystem: true,
   },
@@ -168,6 +178,7 @@ export const SYSTEM_ROLES = [
       "dashboard.view",
       "deliveries.view",
       "deliveries.create",
+      "van.view",
     ],
     isSystem: true,
   },

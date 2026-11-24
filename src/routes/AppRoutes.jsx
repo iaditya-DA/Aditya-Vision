@@ -23,6 +23,8 @@ import RoleFormPage from "../pages/users/RoleFormPage";
 import Reports from "../pages/reports/Reports";
 import SettingsPage from "../pages/settings/SettingsPage";
 import DataManagementPage from "../pages/settings/DataManagementPage";
+import VanSearchPage from "../pages/van/VanSearchPage";
+import VanAdminPage from "../pages/van/VanAdminPage";
 import AccessDenied from "../pages/AccessDenied";
 import NotFound from "../pages/NotFound";
 
@@ -295,6 +297,24 @@ const AppRoutes = () => {
           element={
             <PermissionRoute superAdminOnly={true}>
               <DataManagementPage />
+            </PermissionRoute>
+          }
+        />
+
+        {/* VAN NUMBER / ITEM CODES */}
+        <Route
+          path="/van"
+          element={
+            <PermissionRoute permissionKey="van.view">
+              <VanSearchPage />
+            </PermissionRoute>
+          }
+        />
+        <Route
+          path="/van/admin"
+          element={
+            <PermissionRoute superAdminOnly={true}>
+              <VanAdminPage />
             </PermissionRoute>
           }
         />

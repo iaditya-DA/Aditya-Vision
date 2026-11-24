@@ -56,3 +56,6 @@ FEATURE_IMPLEMENTATION_PROGRESS.md
 # Operating system files
 Thumbs.db
 Desktop.ini
+
+test-data/
+
