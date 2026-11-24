@@ -75,25 +75,44 @@ export function isSyntheticInternalEmail(email) {
 }
 
 /**
- * Authenticates a user using ONLY their Registered Mobile Number and Password.
- * Converts the 10-digit mobile number to the internal Firebase identifier
+ * Authenticates a user using their Registered Mobile Number (or identifier) and Password.
+ * Converts 10-digit mobile numbers to the internal Firebase identifier
  * `${clean10}@gmail.com` and signs in via Firebase Email/Password Authentication.
  */
-export async function loginWithPhoneAndPassword(phone, password) {
-  if (!phone) {
+export async function loginWithPhoneAndPassword(identifier, password) {
+  const cleanInput = String(identifier || "").trim();
+  if (!cleanInput) {
     throw new Error("Please enter your registered mobile number.");
-  }
-
-  const clean10 = normalizePhone(phone);
-  if (!isValidIndianMobile(clean10)) {
-    throw new Error("Please enter a valid 10-digit Indian mobile number (e.g. 9876543210).");
   }
 
   if (!password) {
     throw new Error("Please enter your password.");
   }
 
-  const internalEmail = getInternalEmail(clean10);
+  const clean10 = normalizePhone(cleanInput);
+  let internalEmail = "";
+
+  if (isValidIndianMobile(clean10) || (clean10 && clean10.length === 10)) {
+    internalEmail = getInternalEmail(clean10);
+  } else if (cleanInput.includes("@")) {
+    internalEmail = cleanInput;
+  } else {
+    // If not a standard 10-digit mobile or email, check if it matches a registered user profile
+    try {
+      const user = await findUserByPhone(cleanInput);
+      if (user?.mobile) {
+        internalEmail = getInternalEmail(user.mobile);
+      } else if (user?.email) {
+        internalEmail = user.email;
+      }
+    } catch {
+      // ignore
+    }
+
+    if (!internalEmail) {
+      internalEmail = clean10 && clean10.length === 10 ? getInternalEmail(clean10) : `${cleanInput}@gmail.com`;
+    }
+  }
 
   try {
     const cred = await signInWithEmailAndPassword(auth, internalEmail, password);

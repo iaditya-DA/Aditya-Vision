@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import { Eye, EyeOff, Loader2, ShieldAlert, X } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
-import { isValidIndianMobile } from "../../services/authService";
+
+const EMOJI_REGEX = /[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\uFE0E\uFE0F\u200D\u20E3]/gu;
 
 const Login = () => {
   const navigate = useNavigate();
@@ -23,12 +24,12 @@ const Login = () => {
 
   const validateForm = () => {
     const errs = {};
-    const cleanDigits = mobile.replace(/\D/g, "");
+    const trimmed = mobile.trim();
 
-    if (!cleanDigits) {
+    if (!trimmed) {
       errs.mobile = "Please enter your registered mobile number";
-    } else if (!isValidIndianMobile(cleanDigits)) {
-      errs.mobile = "Enter a valid 10-digit Indian mobile number (e.g. 9876543210)";
+    } else if (EMOJI_REGEX.test(trimmed)) {
+      errs.mobile = "Emojis are not permitted in this field";
     }
 
     if (!password) {
@@ -48,11 +49,11 @@ const Login = () => {
 
     if (!validateForm()) return;
 
-    const cleanDigits = mobile.replace(/\D/g, "");
+    const identifier = mobile.trim();
     setIsSubmitting(true);
 
     try {
-      await login(cleanDigits, password);
+      await login(identifier, password);
       navigate("/dashboard", { replace: true });
     } catch (err) {
       console.error("Login failed:", err);
@@ -117,18 +118,39 @@ const Login = () => {
               </span>
               <input
                 id="login-mobile"
-                type="tel"
-                inputMode="numeric"
-                autoComplete="tel"
+                type="text"
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 value={mobile}
+                onKeyDown={(e) => {
+                  if (e.key && EMOJI_REGEX.test(e.key)) {
+                    e.preventDefault();
+                  }
+                }}
+                onPaste={(e) => {
+                  const pasteText = e.clipboardData?.getData("text") || "";
+                  if (EMOJI_REGEX.test(pasteText)) {
+                    e.preventDefault();
+                    const cleaned = pasteText.replace(EMOJI_REGEX, "");
+                    const target = e.target;
+                    const start = target.selectionStart || 0;
+                    const end = target.selectionEnd || 0;
+                    const next = mobile.slice(0, start) + cleaned + mobile.slice(end);
+                    setMobile(next);
+                    if (errors.mobile) setErrors((prev) => ({ ...prev, mobile: "" }));
+                    if (localError) setLocalError("");
+                  }
+                }}
                 onChange={(e) => {
-                  const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
-                  setMobile(digits);
+                  const sanitized = e.target.value.replace(EMOJI_REGEX, "");
+                  setMobile(sanitized);
                   if (errors.mobile) setErrors((prev) => ({ ...prev, mobile: "" }));
                   if (localError) setLocalError("");
                 }}
-                placeholder="Enter 10-digit mobile number"
-                className={`w-full h-11 px-3.5 rounded-r-lg text-sm bg-white border transition-colors outline-none placeholder:text-gray-400 font-mono ${
+                placeholder="Enter mobile number"
+                className={`w-full h-11 px-3.5 rounded-r-lg text-sm bg-white border transition-colors outline-none placeholder:text-gray-400 font-sans ${
                   errors.mobile
                     ? "border-[#DC2626] focus:border-[#DC2626] focus:ring-1 focus:ring-[#DC2626]"
                     : "border-[#E5E7EB] focus:border-[#E53935] focus:ring-1 focus:ring-[#E53935]"
