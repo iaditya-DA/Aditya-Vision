@@ -12,6 +12,9 @@ import {
   Loader2,
   Calculator,
   Trash2,
+  Camera,
+  ExternalLink,
+  X,
 } from "lucide-react";
 import FormPage from "../../components/layout/FormPage";
 import Button from "../../components/common/Button";
@@ -24,13 +27,14 @@ import { formatCurrency, formatDate } from "../../utils/formatters";
 import { getDeliveryById } from "../../services/deliveryService";
 import { recomputeDeliveryPaymentSummary } from "../../services/paymentService";
 import { deleteDelivery } from "../../services/deleteService";
+import { thumbUrl } from "../../services/cloudinaryService";
 
 const DeliveryDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
   const { user: currentUser, isSuperAdmin, hasPermission } = useAuth();
-  const canDelete = isSuperAdmin || hasPermission("deliveries.delete") || hasPermission("deliveries");
+  const canDelete = isSuperAdmin || hasPermission("deliveries.delete");
   const { getPaymentStatus } = usePaymentStatus();
 
   const [delivery, setDelivery] = useState(null);
@@ -38,6 +42,7 @@ const DeliveryDetailPage = () => {
   const [recomputing, setRecomputing] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const loadDelivery = useCallback(async () => {
     setLoading(true);
@@ -98,11 +103,11 @@ const DeliveryDetailPage = () => {
         <Package className="w-12 h-12 text-[#9CA3AF] mx-auto mb-3" />
         <h2 className="text-lg font-bold text-[#202124]">Delivery Not Found</h2>
         <p className="text-sm text-[#6B7280] mt-1">
-          No delivery was found matching ID <span className="font-mono">{id}</span>.
+          The delivery order #{id} does not exist or was removed.
         </p>
         <Link
           to="/deliveries"
-          className="mt-4 inline-block px-4 py-2 bg-[#E53935] text-white text-sm font-semibold rounded-lg hover:bg-[#C62828]"
+          className="mt-4 inline-block px-4 py-2 bg-[#E53935] text-white text-xs font-semibold rounded-xl"
         >
           Back to Deliveries
         </Link>
@@ -110,22 +115,22 @@ const DeliveryDetailPage = () => {
     );
   }
 
-  const paymentStatus = delivery.paymentSummary?.status || getPaymentStatus(delivery);
+  const paymentStatus = getPaymentStatus(delivery);
   const totalCharges =
-    delivery.totalCharges ||
-    (Number(delivery.deliveryCharges) || 0) + (Number(delivery.additionalCharges) || 0);
+    (Number(delivery.deliveryCharges) || 0) +
+    (Number(delivery.additionalCharges) || 0);
 
   return (
     <FormPage
-      title={`Delivery ${delivery.id}`}
+      title={`Delivery Order #${delivery.id}`}
       backTo="/deliveries"
       backLabel="Deliveries"
     >
-      {/* Top Banner / Actions */}
-      <div className="bg-white p-6 rounded-2xl border border-[#E5E7EB] shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Top Overview Bar */}
+      <div className="bg-white p-5 rounded-2xl border border-[#E5E7EB] shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-mono font-bold text-[#E53935]">
+            <span className="text-xs font-mono font-bold text-[#E53935] bg-[#FFF1F0] px-2 py-0.5 rounded">
               {delivery.id}
             </span>
             <span className="text-xs text-[#9CA3AF]">•</span>
@@ -137,7 +142,7 @@ const DeliveryDetailPage = () => {
             {delivery.customerName}
           </h2>
           <p className="text-xs text-[#6B7280] mt-0.5">
-            Booked on {formatDate(delivery.deliveryDate)}
+            Scheduled for {formatDate(delivery.deliveryDate)}
           </p>
         </div>
 
@@ -145,38 +150,37 @@ const DeliveryDetailPage = () => {
           <StatusBadge status={delivery.status} type="delivery" />
           <StatusBadge status={paymentStatus} type="payment" />
 
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={Edit}
-            onClick={() => navigate(`/deliveries/${delivery.id}/edit`)}
-          >
-            Edit
-          </Button>
-
-          <Button
-            variant="primary"
-            size="sm"
-            icon={RefreshCw}
-            onClick={() => navigate(`/deliveries/${delivery.id}/status`)}
-          >
-            Update Status
-          </Button>
-
+          {/* Edit & Update Status strictly restricted to Super Admin */}
           {isSuperAdmin && (
             <>
-              {isSuperAdmin && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  icon={Calculator}
-                  loading={recomputing}
-                  onClick={handleRecompute}
-                  title="Recalculate payment totals from live payments"
-                >
-                  Recompute Summary
-                </Button>
-              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={Edit}
+                onClick={() => navigate(`/deliveries/${delivery.id}/edit`)}
+              >
+                Edit
+              </Button>
+
+              <Button
+                variant="primary"
+                size="sm"
+                icon={RefreshCw}
+                onClick={() => navigate(`/deliveries/${delivery.id}/status`)}
+              >
+                Update Status
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                icon={Calculator}
+                loading={recomputing}
+                onClick={handleRecompute}
+                title="Recalculate payment totals from live payments"
+              >
+                Recompute Summary
+              </Button>
 
               {canDelete && (
                 <Button
@@ -201,7 +205,7 @@ const DeliveryDetailPage = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column (Details) */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Customer & Route Card */}
+          {/* Customer & Destination Card */}
           <div className="bg-white p-5 rounded-2xl border border-[#E5E7EB] shadow-2xs space-y-4">
             <h3 className="text-sm font-bold text-[#202124] uppercase tracking-wider flex items-center gap-2">
               <User className="w-4 h-4 text-[#E53935]" />
@@ -223,26 +227,18 @@ const DeliveryDetailPage = () => {
                   {delivery.alternateMobile && ` / ${delivery.alternateMobile}`}
                 </span>
               </div>
-              <div className="sm:col-span-2">
-                <span className="text-[#6B7280] block">Delivery Address</span>
-                <span className="font-medium text-[#202124] text-sm flex items-start gap-1.5 mt-0.5">
-                  <MapPin className="w-4 h-4 text-[#E53935] shrink-0 mt-0.5" />
-                  {delivery.deliveryAddress}, {delivery.city} - {delivery.pinCode}
+              <div>
+                <span className="text-[#6B7280] block">Destination City & PIN</span>
+                <span className="font-medium text-[#202124] text-sm flex items-center gap-1.5 mt-0.5">
+                  <MapPin className="w-4 h-4 text-[#E53935] shrink-0" />
+                  {delivery.city} - {delivery.pinCode}
                 </span>
               </div>
-              <div className="sm:col-span-2 pt-2 border-t border-[#E5E7EB] flex items-center justify-between">
-                <div>
-                  <span className="text-[#6B7280] block text-[11px]">Pickup Location</span>
-                  <span className="text-xs font-medium text-[#202124]">
-                    {delivery.pickupAddress || "Aditya Vision Main Store"}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-[#6B7280] block text-[11px]">Distance</span>
-                  <span className="text-xs font-bold text-[#202124]">
-                    {delivery.distanceKm} KM
-                  </span>
-                </div>
+              <div>
+                <span className="text-[#6B7280] block">Transit Distance</span>
+                <span className="font-semibold text-[#202124] text-sm mt-0.5 block">
+                  {delivery.distanceKm} KM
+                </span>
               </div>
             </div>
           </div>
@@ -261,13 +257,16 @@ const DeliveryDetailPage = () => {
                   {delivery.productName}
                 </span>
                 <span className="text-[#6B7280] block text-[11px] mt-0.5">
-                  Category: {delivery.category} • Qty: {delivery.quantity || 1}
+                  Category: {delivery.category} • Quantity: {delivery.quantity || 1}
                 </span>
               </div>
               <div>
-                <span className="text-[#6B7280] block">Product Value</span>
-                <span className="font-semibold text-[#202124] text-sm">
-                  {delivery.productAmount ? formatCurrency(delivery.productAmount) : "N/A"}
+                <span className="text-[#6B7280] block">Invoice Reference</span>
+                <span className="font-semibold font-mono text-[#202124] text-sm">
+                  {delivery.invoiceNumber}
+                </span>
+                <span className="text-[#6B7280] block text-[11px] mt-0.5">
+                  Scheduled: {formatDate(delivery.deliveryDate)}
                 </span>
               </div>
             </div>
@@ -297,6 +296,57 @@ const DeliveryDetailPage = () => {
               <div className="text-xs bg-[#FFF8F7] p-3 rounded-xl border border-[#FEE2E2]">
                 <span className="font-bold text-[#991B1B] block mb-0.5">Special Handling Notes:</span>
                 <p className="text-[#7F1D1D]">{delivery.notes}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Product Photo Card */}
+          <div className="bg-white p-5 rounded-2xl border border-[#E5E7EB] shadow-2xs space-y-3">
+            <h3 className="text-sm font-bold text-[#202124] uppercase tracking-wider flex items-center gap-2">
+              <Camera className="w-4 h-4 text-[#E53935]" />
+              <span>Product Photo</span>
+            </h3>
+
+            {delivery.image?.url ? (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-gray-50 rounded-xl border border-[#E5E7EB]">
+                <div
+                  className="flex items-center gap-3 cursor-pointer group"
+                  onClick={() => setLightboxOpen(true)}
+                  title="Click to view full photo"
+                >
+                  <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-[#D1D5DB] bg-white shrink-0 shadow-2xs group-hover:border-[#E53935] transition-colors">
+                    <img
+                      src={thumbUrl(delivery.image.url, 200)}
+                      alt={delivery.productName || "Product"}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-[#202124] block group-hover:text-[#E53935] transition-colors">
+                      {delivery.productName}
+                    </span>
+                    <span className="text-[11px] text-[#6B7280] block mt-0.5">
+                      Cloudinary Verified Image
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#E53935] mt-1">
+                      <ExternalLink className="w-3 h-3" /> Click to enlarge
+                    </span>
+                  </div>
+                </div>
+
+                <a
+                  href={delivery.image.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="self-end sm:self-center px-3 py-1.5 rounded-lg border border-[#D1D5DB] bg-white text-xs font-semibold text-[#202124] hover:bg-gray-100 shadow-2xs inline-flex items-center gap-1.5"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 text-[#6B7280]" />
+                  <span>Open in Tab</span>
+                </a>
+              </div>
+            ) : (
+              <div className="p-4 rounded-xl border border-dashed border-[#D1D5DB] bg-gray-50/50 text-center text-xs text-[#6B7280]">
+                No product photo attached to this delivery order.
               </div>
             )}
           </div>
@@ -331,13 +381,15 @@ const DeliveryDetailPage = () => {
             ) : (
               <div className="text-xs text-[#6B7280]">
                 <p>No driver assigned to this order yet.</p>
-                <button
-                  type="button"
-                  onClick={() => navigate(`/deliveries/${delivery.id}/edit`)}
-                  className="mt-2 text-xs font-bold text-[#E53935] hover:underline"
-                >
-                  Assign Driver Now
-                </button>
+                {isSuperAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/deliveries/${delivery.id}/edit`)}
+                    className="mt-2 text-xs font-bold text-[#E53935] hover:underline cursor-pointer"
+                  >
+                    Assign Driver Now
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -354,7 +406,9 @@ const DeliveryDetailPage = () => {
             <div className="space-y-2 text-xs pt-1">
               <div className="flex justify-between">
                 <span className="text-[#6B7280]">Total Charges</span>
-                <span className="font-semibold text-[#202124]">{formatCurrency(totalCharges)}</span>
+                <span className="font-semibold text-[#202124]">
+                  {formatCurrency(totalCharges)}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-[#6B7280]">Amount Paid to Driver</span>
@@ -371,13 +425,17 @@ const DeliveryDetailPage = () => {
                       : "text-[#16A34A]"
                   }`}
                 >
-                  {formatCurrency(delivery.paymentSummary?.balance ?? totalCharges)}
+                  {formatCurrency(
+                    delivery.paymentSummary?.balance ?? totalCharges
+                  )}
                 </span>
               </div>
               {delivery.paymentSummary?.lastPaymentMode && (
                 <div className="text-[11px] text-[#6B7280] pt-1">
                   Last payment: {delivery.paymentSummary.lastPaymentMode}
-                  {delivery.paymentSummary.lastReference ? ` (${delivery.paymentSummary.lastReference})` : ""}
+                  {delivery.paymentSummary.lastReference
+                    ? ` (${delivery.paymentSummary.lastReference})`
+                    : ""}
                 </div>
               )}
             </div>
@@ -395,10 +453,16 @@ const DeliveryDetailPage = () => {
                 <div key={idx} className="relative">
                   <div className="absolute -left-[1.65rem] top-1 w-3 h-3 rounded-full bg-[#E53935] ring-4 ring-white" />
                   <div className="text-xs">
-                    <p className="font-bold text-[#202124]">{t.event || t.status}</p>
-                    {t.note && <p className="text-[#6B7280] mt-0.5">{t.note}</p>}
+                    <p className="font-bold text-[#202124]">
+                      {t.event || t.status}
+                    </p>
+                    {t.note && (
+                      <p className="text-[#6B7280] mt-0.5">{t.note}</p>
+                    )}
                     <span className="text-[10px] text-[#9CA3AF] block mt-0.5">
-                      {t.timestamp ? new Date(t.timestamp).toLocaleString("en-IN") : "Recorded"}
+                      {t.timestamp
+                        ? new Date(t.timestamp).toLocaleString("en-IN")
+                        : "Recorded"}
                       {t.byName && ` • by ${t.byName}`}
                     </span>
                   </div>
@@ -408,6 +472,39 @@ const DeliveryDetailPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Lightbox Modal for Photo */}
+      {lightboxOpen && delivery.image?.url && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-xs"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <div
+            className="relative max-w-4xl max-h-[90vh] bg-white rounded-2xl overflow-hidden shadow-2xl p-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+              <span className="text-xs font-bold text-[#202124]">
+                {delivery.productName} — Photo Preview
+              </span>
+              <button
+                type="button"
+                onClick={() => setLightboxOpen(false)}
+                className="p-1 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-black cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-2 flex items-center justify-center overflow-auto max-h-[75vh]">
+              <img
+                src={delivery.image.url}
+                alt={delivery.productName}
+                className="max-w-full max-h-[70vh] rounded-lg object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirm Dialog */}
       <ConfirmDialog

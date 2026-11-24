@@ -130,6 +130,13 @@ const AVAILABLE_COLUMNS = [
     type: "status",
     defaultSelected: true,
   },
+  {
+    group: "Deliveries",
+    key: "imageUrl",
+    label: "Product Photo URL",
+    type: "text",
+    defaultSelected: false,
+  },
 
   // Drivers Group (Joined)
   {
@@ -562,13 +569,6 @@ const Reports = () => {
         { key: "customerName", label: "Customer", sortable: true },
         { key: "productName", label: "Product", sortable: false },
         {
-          key: "productAmount",
-          label: "Bill Value",
-          sortable: true,
-          align: "right",
-          render: (v) => formatCurrency(v),
-        },
-        {
           key: "deliveryCharges",
           label: "Freight",
           sortable: true,
@@ -583,10 +583,6 @@ const Reports = () => {
         },
       ];
 
-      const sumBill = raw.reduce(
-        (s, d) => s + (Number(d.productAmount) || 0),
-        0,
-      );
       const sumFreight = raw.reduce(
         (s, d) => s + (Number(d.deliveryCharges) || 0),
         0,
@@ -594,13 +590,12 @@ const Reports = () => {
 
       summaryStats = [
         { label: "Orders Dispatched", value: raw.length },
-        { label: "Total Merchandise Value", value: formatCurrency(sumBill) },
         { label: "Total Freight Collected", value: formatCurrency(sumFreight) },
       ];
 
       chartData = raw.slice(0, 7).map((d) => ({
-        name: d.customerName.split(" ")[0],
-        amount: d.productAmount,
+        name: d.customerName ? d.customerName.split(" ")[0] : "Order",
+        amount: d.deliveryCharges,
       }));
     } else if (standardType === "monthly-business") {
       // Monthly aggregate
@@ -853,6 +848,7 @@ const Reports = () => {
 
         return {
           ...delivery,
+          imageUrl: delivery.image?.url || delivery.imageUrl || "-",
           driverMobile: matchedDriver?.mobile || "-",
           vehicleType: matchedDriver?.vehicleType || "-",
           vehicleNumber: matchedDriver?.vehicleNumber || "-",

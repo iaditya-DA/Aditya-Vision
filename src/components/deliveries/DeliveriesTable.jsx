@@ -13,12 +13,14 @@ import {
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
+  Camera,
 } from "lucide-react";
 import StatusBadge from "../common/StatusBadge";
 import EmptyState from "../common/EmptyState";
 import LoadingState from "../common/LoadingState";
 import { formatCurrency, formatDate } from "../../utils/formatters";
 import { usePaymentStatus } from "../../hooks/usePaymentStatus";
+import { useAuth } from "../../hooks/useAuth";
 
 // Helper for category icons
 const getCategoryIcon = (category = "") => {
@@ -47,6 +49,7 @@ const DeliveriesTable = ({
   className = "",
 }) => {
   const { getPaymentStatus } = usePaymentStatus();
+  const { isSuperAdmin } = useAuth();
   const [sortKey, setSortKey] = useState("id");
   const [sortDir, setSortDir] = useState("desc");
 
@@ -401,9 +404,18 @@ const DeliveriesTable = ({
                     >
                       {row.productName}
                     </span>
-                    <div className="flex items-center gap-1 text-[11px] text-[#6B7280] mt-0.5">
+                    <div className="flex items-center gap-1.5 text-[11px] text-[#6B7280] mt-0.5">
                       <CategoryIcon className="w-3 h-3 text-[#E53935] shrink-0" />
                       <span className="truncate">{row.category}</span>
+                      {(row.image?.url || row.imageUrl) && (
+                        <span
+                          className="inline-flex items-center gap-0.5 text-[#E53935] bg-[#FFF1F0] px-1.5 py-0.5 rounded font-medium text-[10px] shrink-0"
+                          title="Product Photo Attached"
+                        >
+                          <Camera className="w-2.5 h-2.5" />
+                          <span>Photo</span>
+                        </span>
+                      )}
                     </div>
                   </td>
 
@@ -468,7 +480,7 @@ const DeliveriesTable = ({
                         </button>
                       )}
 
-                      {onUpdateStatus && (
+                      {isSuperAdmin && onUpdateStatus && (
                         <button
                           type="button"
                           onClick={() => onUpdateStatus(row)}
@@ -480,7 +492,7 @@ const DeliveriesTable = ({
                         </button>
                       )}
 
-                      {onEdit && (
+                      {isSuperAdmin && onEdit && (
                         <button
                           type="button"
                           onClick={() => onEdit(row)}
@@ -556,9 +568,20 @@ const DeliveriesTable = ({
 
               {/* Product */}
               <div>
-                <p className="font-bold text-[#202124] text-xs leading-snug">
-                  {row.productName}
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <p className="font-bold text-[#202124] text-xs leading-snug">
+                    {row.productName}
+                  </p>
+                  {(row.image?.url || row.imageUrl) && (
+                    <span
+                      className="inline-flex items-center gap-0.5 text-[#E53935] bg-[#FFF1F0] px-1.5 py-0.5 rounded font-medium text-[10px] shrink-0"
+                      title="Product Photo Attached"
+                    >
+                      <Camera className="w-2.5 h-2.5" />
+                      <span>Photo</span>
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-1.5 text-[11px] text-[#6B7280] mt-1">
                   <CategoryIcon className="w-3 h-3 text-[#E53935] shrink-0" />
                   <span>{row.category}</span>
@@ -618,7 +641,7 @@ const DeliveriesTable = ({
                     <Eye className="w-3.5 h-3.5" /> Details
                   </button>
                 )}
-                {onUpdateStatus && (
+                {isSuperAdmin && onUpdateStatus && (
                   <button
                     type="button"
                     onClick={() => onUpdateStatus(row)}
@@ -627,7 +650,7 @@ const DeliveriesTable = ({
                     <RefreshCw className="w-3.5 h-3.5" /> Status
                   </button>
                 )}
-                {onEdit && (
+                {isSuperAdmin && onEdit && (
                   <button
                     type="button"
                     onClick={() => onEdit(row)}

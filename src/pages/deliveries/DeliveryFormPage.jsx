@@ -1,17 +1,28 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { UserPlus, Loader2 } from "lucide-react";
+import {
+  UserPlus,
+  Loader2,
+  Camera,
+  UploadCloud,
+  X,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+} from "lucide-react";
 import FormPage from "../../components/layout/FormPage";
 import FormSection from "../../components/layout/FormSection";
 import Input from "../../components/common/Input";
 import Select from "../../components/common/Select";
 import Textarea from "../../components/common/Textarea";
 import ConfirmDialog from "../../components/common/ConfirmDialog";
+import AccessDenied from "../AccessDenied";
 import { deliveryCategories } from "../../constants/appConstants";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../hooks/useToast";
 import { getActiveDrivers } from "../../services/driverService";
 import { getDeliveryById, createDeliveryWithTx } from "../../services/deliveryService";
+import { uploadImage, thumbUrl, compressImage } from "../../services/cloudinaryService";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../config/firebase";
 
@@ -23,10 +34,6 @@ const getInitialForm = (delivery) => ({
   category: delivery?.category || "Television",
   quantity: delivery?.quantity || 1,
   invoiceNumber: delivery?.invoiceNumber || "",
-  productAmount: delivery?.productAmount ? String(delivery.productAmount) : "",
-  pickupAddress:
-    delivery?.pickupAddress || "Aditya Vision Mega Store, Boring Road Crossing",
-  deliveryAddress: delivery?.deliveryAddress || "",
   city: delivery?.city || "Patna",
   pinCode: delivery?.pinCode || "",
   distanceKm: delivery?.distanceKm ? String(delivery.distanceKm) : "",
@@ -41,13 +48,14 @@ const getInitialForm = (delivery) => ({
     : "0",
   notes: delivery?.notes || "",
   status: delivery?.status || "Created",
+  image: delivery?.image || null,
 });
 
 const DeliveryFormPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { user } = useAuth();
+  const { user, isSuperAdmin } = useAuth();
 
   const isEditing = Boolean(id);
   const [formData, setFormData] = useState(() => getInitialForm(null));
@@ -58,25 +66,44 @@ const DeliveryFormPage = () => {
   const [loadingInitial, setLoadingInitial] = useState(isEditing);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Cloudinary image upload state
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState("");
+  const [fileMeta, setFileMeta] = useState(null);
+  const [lastFile, setLastFile] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef(null);
+
   useEffect(() => {
     let mounted = true;
-    getActiveDrivers().then((list) => {
-      if (mounted) setActiveDrivers(list);
-    }).catch(console.error);
+    getActiveDrivers()
+      .then((list) => {
+        if (mounted) setActiveDrivers(list);
+      })
+      .catch(console.error);
 
     if (isEditing) {
-      getDeliveryById(id).then((del) => {
-        if (mounted && del) {
-          setFormData(getInitialForm(del));
-          setLoadingInitial(false);
-        }
-      }).catch((err) => {
-        if (mounted) {
-          toast.error("Could not load delivery order");
-          setLoadingInitial(false);
-        }
-        console.error(err);
-      });
+      getDeliveryById(id)
+        .then((del) => {
+          if (mounted && del) {
+            setFormData(getInitialForm(del));
+            if (del.image?.url) {
+              setFileMeta({
+                name: "Product Photo",
+                size: "Uploaded",
+              });
+            }
+            setLoadingInitial(false);
+          }
+        })
+        .catch((err) => {
+          if (mounted) {
+            toast.error("Could not load delivery order");
+            setLoadingInitial(false);
+          }
+          console.error(err);
+        });
     }
 
     return () => {
@@ -89,6 +116,98 @@ const DeliveryFormPage = () => {
     setIsDirty(true);
   };
 
+  const processAndUploadFile = async (file) => {
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setUploadError("Only image files (JPG, PNG, WebP) are supported.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError("Image file size exceeds 5MB limit. Please choose a smaller image.");
+      return;
+    }
+
+    setLastFile(file);
+    setUploadError("");
+    setUploading(true);
+    setUploadProgress(10);
+
+    try {
+      // 1. Client-side compression to max 1600px, 0.8 quality JPEG
+      const compressed = await compressImage(file, 1600, 0.8);
+      setUploadProgress(30);
+
+      // 2. Upload to Cloudinary unsigned preset
+      const result = await uploadImage(compressed, (percent) => {
+        // Map upload progress 30% -> 95%
+        const mapped = Math.round(30 + (percent * 65) / 100);
+        setUploadProgress(mapped);
+      });
+
+      setUploadProgress(100);
+      setFormData((prev) => ({
+        ...prev,
+        image: {
+          url: result.url,
+          publicId: result.publicId,
+        },
+      }));
+      setFileMeta({
+        name: file.name,
+        size: `${Math.round(compressed.size / 1024)} KB`,
+      });
+      setIsDirty(true);
+      toast.success("Product photo uploaded successfully.");
+    } catch (err) {
+      console.error("Cloudinary upload failed:", err);
+      setUploadError(err.message || "Failed to upload photo. Please retry.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processAndUploadFile(file);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processAndUploadFile(file);
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    setFormData((prev) => ({ ...prev, image: null }));
+    setFileMeta(null);
+    setUploadError("");
+    setIsDirty(true);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleRetryUpload = () => {
+    if (lastFile) {
+      processAndUploadFile(lastFile);
+    }
+  };
+
   const validate = () => {
     const errs = {};
     if (!formData.customerName.trim())
@@ -98,23 +217,11 @@ const DeliveryFormPage = () => {
     } else if (!/^\d{10}$/.test(formData.customerMobile.trim())) {
       errs.customerMobile = "Must be a 10-digit mobile number";
     }
-    if (
-      formData.alternateMobile.trim() &&
-      !/^\d{10}$/.test(formData.alternateMobile.trim())
-    ) {
-      errs.alternateMobile = "Must be a 10-digit mobile number";
-    }
     if (!formData.productName.trim())
       errs.productName = "Product name is required";
     if (!formData.invoiceNumber.trim())
       errs.invoiceNumber = "Invoice number is required";
-    if (!formData.quantity || Number(formData.quantity) < 1)
-      errs.quantity = "Min quantity is 1";
-    if (!formData.pickupAddress.trim())
-      errs.pickupAddress = "Pickup address is required";
-    if (!formData.deliveryAddress.trim())
-      errs.deliveryAddress = "Delivery address is required";
-    if (!formData.city.trim()) errs.city = "City is required";
+    if (!formData.city.trim()) errs.city = "Destination city is required";
     if (!formData.pinCode.trim()) {
       errs.pinCode = "PIN code is required";
     } else if (!/^\d{6}$/.test(formData.pinCode.trim())) {
@@ -141,6 +248,10 @@ const DeliveryFormPage = () => {
 
   const handleSubmit = async () => {
     if (!validate()) return;
+    if (uploading) {
+      toast.warning("Please wait for product photo upload to complete.");
+      return;
+    }
 
     setIsSubmitting(true);
     const matchedDriver = activeDrivers.find(
@@ -153,14 +264,24 @@ const DeliveryFormPage = () => {
     }
 
     const payload = {
-      ...formData,
-      quantity: Number(formData.quantity),
-      productAmount: formData.productAmount ? Number(formData.productAmount) : 0,
+      customerName: formData.customerName.trim(),
+      customerMobile: formData.customerMobile.trim(),
+      alternateMobile: formData.alternateMobile?.trim() || "",
+      productName: formData.productName.trim(),
+      category: formData.category,
+      quantity: Number(formData.quantity) || 1,
+      invoiceNumber: formData.invoiceNumber.trim(),
+      city: formData.city.trim(),
+      pinCode: formData.pinCode.trim(),
       distanceKm: Number(formData.distanceKm),
-      deliveryCharges: Number(formData.deliveryCharges),
-      additionalCharges: Number(formData.additionalCharges) || 0,
+      deliveryDate: formData.deliveryDate,
+      driverId: formData.driverId || "",
       driverName: matchedDriver ? matchedDriver.name : "Unassigned",
+      deliveryCharges: Number(formData.deliveryCharges) || 0,
+      additionalCharges: Number(formData.additionalCharges) || 0,
+      notes: formData.notes?.trim() || "",
       status: derivedStatus,
+      image: formData.image || null,
     };
 
     try {
@@ -168,7 +289,8 @@ const DeliveryFormPage = () => {
         const delRef = doc(db, "deliveries", id);
         await updateDoc(delRef, {
           ...payload,
-          totalCharges: (payload.deliveryCharges || 0) + (payload.additionalCharges || 0),
+          totalCharges:
+            (payload.deliveryCharges || 0) + (payload.additionalCharges || 0),
           updatedAt: new Date(),
         });
         toast.success(`Delivery ${id} updated successfully.`);
@@ -194,6 +316,11 @@ const DeliveryFormPage = () => {
     }
   };
 
+  // Staff cannot edit deliveries - Super Admin only
+  if (isEditing && !isSuperAdmin) {
+    return <AccessDenied />;
+  }
+
   if (loadingInitial) {
     return (
       <div className="py-24 text-center">
@@ -211,7 +338,7 @@ const DeliveryFormPage = () => {
         backLabel="Deliveries"
       >
         {/* Section 1: Customer */}
-        <FormSection number="1" title="Customer">
+        <FormSection number="1" title="Customer Details">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Input
               label="Customer Full Name"
@@ -242,8 +369,8 @@ const DeliveryFormPage = () => {
         </FormSection>
 
         {/* Section 2: Product */}
-        <FormSection number="2" title="Product">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <FormSection number="2" title="Product Information">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Product Name"
               value={formData.productName}
@@ -258,14 +385,6 @@ const DeliveryFormPage = () => {
               onChange={(e) => update("category", e.target.value)}
               options={deliveryCategories.map((c) => ({ label: c, value: c }))}
             />
-            <Input
-              label="Quantity"
-              type="number"
-              value={String(formData.quantity)}
-              onChange={(e) => update("quantity", e.target.value)}
-              error={errors.quantity}
-              required
-            />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
             <Input
@@ -277,77 +396,211 @@ const DeliveryFormPage = () => {
               required
             />
             <Input
-              label="Product Price / Value (₹)"
+              label="Quantity"
               type="number"
-              value={formData.productAmount}
-              onChange={(e) => update("productAmount", e.target.value)}
-              placeholder="e.g. 84990"
+              value={String(formData.quantity)}
+              onChange={(e) => update("quantity", e.target.value)}
+              error={errors.quantity}
+              required
             />
           </div>
         </FormSection>
 
-        {/* Section 3: Route */}
-        <FormSection number="3" title="Route & Logistics">
-          <div className="space-y-4">
+        {/* Section 3: Product Photo Upload (Optional) */}
+        <FormSection number="3" title="Product Photo (Optional)">
+          <div className="space-y-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+
+            {!formData.image?.url && !uploading && (
+              <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={`
+                  border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all
+                  ${
+                    isDragging
+                      ? "border-[#E53935] bg-[#FFF8F7]"
+                      : "border-[#D1D5DB] hover:border-[#E53935] hover:bg-[#FFF8F7]/40 bg-gray-50/50"
+                  }
+                `}
+              >
+                <div className="w-12 h-12 rounded-full bg-red-50 text-[#E53935] flex items-center justify-center mx-auto mb-3">
+                  <UploadCloud className="w-6 h-6" />
+                </div>
+                <p className="text-sm font-semibold text-[#202124]">
+                  Drag and drop product photo, or{" "}
+                  <span className="text-[#E53935] underline underline-offset-2">
+                    browse from device / camera
+                  </span>
+                </p>
+                <p className="text-xs text-[#6B7280] mt-1">
+                  Supports JPG, PNG, WebP up to 5MB. Automatically compressed for fast delivery.
+                </p>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fileInputRef.current?.click();
+                  }}
+                  className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#D1D5DB] bg-white text-xs font-semibold text-[#202124] hover:bg-gray-50 shadow-2xs cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5 text-[#E53935]" />
+                  <span>Choose Photo / Open Camera</span>
+                </button>
+              </div>
+            )}
+
+            {/* Uploading progress bar state */}
+            {uploading && (
+              <div className="p-5 rounded-2xl border border-[#E5E7EB] bg-white space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-[#202124] flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 text-[#E53935] animate-spin" />
+                    Compressing & uploading photo...
+                  </span>
+                  <span className="font-mono font-bold text-[#E53935]">
+                    {uploadProgress}%
+                  </span>
+                </div>
+                <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+                  <div
+                    className="bg-[#E53935] h-full transition-all duration-200 rounded-full"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Uploaded photo preview */}
+            {formData.image?.url && !uploading && (
+              <div className="p-4 rounded-2xl border border-[#E5E7EB] bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-[#E5E7EB] bg-gray-50 shrink-0 shadow-2xs">
+                    <img
+                      src={thumbUrl(formData.image.url, 200)}
+                      alt="Product preview"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <p className="text-xs font-bold text-[#202124] truncate max-w-[200px] sm:max-w-[280px]">
+                        {fileMeta?.name || "Product Photo Attached"}
+                      </p>
+                    </div>
+                    <p className="text-[11px] text-[#6B7280] font-mono mt-0.5">
+                      Size: {fileMeta?.size || "Compressed"} • Cloudinary Hosted
+                    </p>
+                    <a
+                      href={formData.image.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] text-[#E53935] hover:underline inline-block mt-0.5"
+                    >
+                      View full photo
+                    </a>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-center">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-lg border border-[#D1D5DB] text-xs font-semibold text-[#202124] hover:bg-gray-50 shadow-2xs cursor-pointer inline-flex items-center gap-1"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-[#6B7280]" />
+                    <span>Replace</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRemovePhoto}
+                    className="px-3 py-1.5 rounded-lg border border-red-200 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 shadow-2xs cursor-pointer inline-flex items-center gap-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Remove</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Error display with Retry */}
+            {uploadError && !uploading && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 flex items-center justify-between gap-3 text-xs text-red-700">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-[#DC2626] shrink-0" />
+                  <span>{uploadError}</span>
+                </div>
+                {lastFile && (
+                  <button
+                    type="button"
+                    onClick={handleRetryUpload}
+                    className="px-2.5 py-1 rounded-md bg-red-600 text-white font-medium hover:bg-red-700 transition-colors shrink-0 cursor-pointer"
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </FormSection>
+
+        {/* Section 4: Route */}
+        <FormSection number="4" title="Route & Destination">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Input
-              label="Pickup Warehouse / Showroom Location"
-              value={formData.pickupAddress}
-              onChange={(e) => update("pickupAddress", e.target.value)}
-              placeholder="e.g. Aditya Vision Central Warehouse"
-              error={errors.pickupAddress}
+              label="Destination City"
+              value={formData.city}
+              onChange={(e) => update("city", e.target.value)}
+              placeholder="e.g. Patna"
+              error={errors.city}
               required
             />
-            <Textarea
-              label="Customer Handover Doorstep Address"
-              value={formData.deliveryAddress}
-              onChange={(e) => update("deliveryAddress", e.target.value)}
-              placeholder="e.g. Flat 402, Royal Residency, Boring Canal Road"
-              error={errors.deliveryAddress}
-              rows={2}
+            <Input
+              label="Destination PIN Code"
+              value={formData.pinCode}
+              onChange={(e) => update("pinCode", e.target.value)}
+              placeholder="e.g. 800001"
+              maxLength={6}
+              error={errors.pinCode}
               required
             />
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-              <Input
-                label="Destination City"
-                value={formData.city}
-                onChange={(e) => update("city", e.target.value)}
-                error={errors.city}
-                required
-              />
-              <Input
-                label="Destination PIN Code"
-                value={formData.pinCode}
-                onChange={(e) => update("pinCode", e.target.value)}
-                maxLength={6}
-                error={errors.pinCode}
-                required
-              />
-              <Input
-                label="Transit Distance (KM)"
-                type="number"
-                value={formData.distanceKm}
-                onChange={(e) => update("distanceKm", e.target.value)}
-                placeholder="e.g. 8.5"
-                error={errors.distanceKm}
-                required
-              />
-              <Input
-                label="Scheduled Date"
-                type="date"
-                value={formData.deliveryDate}
-                onChange={(e) => update("deliveryDate", e.target.value)}
-                error={errors.deliveryDate}
-                required
-              />
-            </div>
+            <Input
+              label="Transit Distance (KM)"
+              type="number"
+              value={formData.distanceKm}
+              onChange={(e) => update("distanceKm", e.target.value)}
+              placeholder="e.g. 8.5"
+              error={errors.distanceKm}
+              required
+            />
+            <Input
+              label="Scheduled Delivery Date"
+              type="date"
+              value={formData.deliveryDate}
+              onChange={(e) => update("deliveryDate", e.target.value)}
+              error={errors.deliveryDate}
+              required
+            />
           </div>
         </FormSection>
 
-        {/* Section 4: Driver */}
-        <FormSection number="4" title="Assigned Fleet Driver">
+        {/* Section 5: Driver */}
+        <FormSection number="5" title="Assigned Fleet Driver">
           {activeDrivers.length === 0 ? (
             <div className="p-4 rounded-xl border border-dashed border-[#D1D5DB] text-center bg-gray-50">
-              <p className="text-sm font-semibold text-[#202124]">No active drivers available</p>
+              <p className="text-sm font-semibold text-[#202124]">
+                No active drivers available
+              </p>
               <p className="text-xs text-[#6B7280] mt-1">
                 You can save this delivery as Unassigned now and assign later.
               </p>
@@ -375,8 +628,8 @@ const DeliveryFormPage = () => {
           )}
         </FormSection>
 
-        {/* Section 5: Charges */}
-        <FormSection number="5" title="Charges">
+        {/* Section 6: Charges */}
+        <FormSection number="6" title="Charges & Notes">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Trip Delivery Charges (₹)"
@@ -412,16 +665,16 @@ const DeliveryFormPage = () => {
         <button
           type="button"
           onClick={handleCancel}
-          disabled={isSubmitting}
-          className="px-5 py-2.5 rounded-xl border border-[#D1D5DB] text-sm font-semibold text-[#202124] hover:bg-gray-50 transition-colors disabled:opacity-50"
+          disabled={isSubmitting || uploading}
+          className="px-5 py-2.5 rounded-xl border border-[#D1D5DB] text-sm font-semibold text-[#202124] hover:bg-gray-50 transition-colors disabled:opacity-50 cursor-pointer"
         >
           Cancel
         </button>
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={isSubmitting}
-          className="px-6 py-2.5 rounded-xl bg-[#E53935] hover:bg-[#C62828] text-white text-sm font-semibold shadow-xs transition-colors flex items-center gap-2 disabled:opacity-50"
+          disabled={isSubmitting || uploading}
+          className="px-6 py-2.5 rounded-xl bg-[#E53935] hover:bg-[#C62828] text-white text-sm font-semibold shadow-xs transition-colors flex items-center gap-2 disabled:opacity-50 cursor-pointer"
         >
           {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
           <span>{isEditing ? "Update Delivery" : "Schedule Delivery"}</span>

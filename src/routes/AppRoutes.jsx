@@ -121,7 +121,7 @@ const AppRoutes = () => {
         <Route
           path="/deliveries/:id/edit"
           element={
-            <PermissionRoute permissionKey="deliveries">
+            <PermissionRoute permissionKey="deliveries" superAdminOnly={true}>
               <DeliveryFormPage />
             </PermissionRoute>
           }
@@ -137,7 +137,7 @@ const AppRoutes = () => {
         <Route
           path="/deliveries/:id/status"
           element={
-            <PermissionRoute permissionKey="deliveries">
+            <PermissionRoute permissionKey="deliveries" superAdminOnly={true}>
               <UpdateStatusPage />
             </PermissionRoute>
           }

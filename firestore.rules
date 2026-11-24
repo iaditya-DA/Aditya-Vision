@@ -39,6 +39,17 @@ service cloud.firestore {
       );
     }
 
+    function isValidDeliveryImage(data) {
+      return !('image' in data) ||
+        data.image == null ||
+        (
+          data.image is map &&
+          data.image.url is string &&
+          data.image.url.matches('^https://res\\.cloudinary\\.com/poxdfo3s/.*') &&
+          data.image.publicId is string
+        );
+    }
+
     // Counters collection (used for transaction-based ID generation)
     match /counters/{counterId} {
       allow read, write: if isAuthenticated();
@@ -95,9 +106,13 @@ service cloud.firestore {
     // Deliveries collection
     match /deliveries/{deliveryId} {
       allow read: if isStaff();
-      allow create: if isStaff() && (hasPermission('deliveries.create') || hasPermission('deliveries'));
-      allow update: if isStaff() && (hasPermission('deliveries.edit') || hasPermission('deliveries'));
-      allow delete: if isSuperAdmin() || hasPermission('deliveries.delete');
+      allow create: if isStaff() &&
+        (hasPermission('deliveries.create') || hasPermission('deliveries')) &&
+        request.resource.data.status in ['Created', 'Assigned'] &&
+        request.resource.data.createdBy == request.auth.uid &&
+        isValidDeliveryImage(request.resource.data);
+      allow update: if isSuperAdmin() && isValidDeliveryImage(request.resource.data);
+      allow delete: if isSuperAdmin();
     }
 
     // Payment Requests collection

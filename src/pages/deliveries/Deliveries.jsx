@@ -279,8 +279,16 @@ const Deliveries = () => {
               selectedIds={selectedDeliveryIds}
               onSelectionChange={setSelectedDeliveryIds}
               onViewDetails={(row) => navigate(`/deliveries/${row.id}`)}
-              onUpdateStatus={(row) => navigate(`/deliveries/${row.id}/status`)}
-              onEdit={(row) => navigate(`/deliveries/${row.id}/edit`)}
+              onUpdateStatus={
+                isSuperAdmin
+                  ? (row) => navigate(`/deliveries/${row.id}/status`)
+                  : null
+              }
+              onEdit={
+                isSuperAdmin
+                  ? (row) => navigate(`/deliveries/${row.id}/edit`)
+                  : null
+              }
               onDelete={canDelete ? (row) => setSingleDeleteTarget(row) : null}
               emptyMessage="No deliveries found"
               emptyDescription="No customer orders recorded yet. Click 'Create Delivery' to log the first shipment."

@@ -16,6 +16,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { generateEntityId } from "./idService";
+import { createNotification } from "./notificationService";
 
 export const DELIVERY_STATUSES = [
   "Created",
@@ -117,7 +118,7 @@ export async function getDeliveryById(id) {
  * If driver payment is also recorded on create, executes payment in the SAME transaction.
  */
 export async function createDeliveryWithTx(deliveryData, paymentData = null, creator) {
-  return await runTransaction(db, async (tx) => {
+  const result = await runTransaction(db, async (tx) => {
     const deliveryId = await generateEntityId("delivery", tx);
     const delCharges = Math.round(Number(deliveryData.deliveryCharges) || 0);
     const addCharges = Math.round(Number(deliveryData.additionalCharges) || 0);
@@ -219,6 +220,43 @@ export async function createDeliveryWithTx(deliveryData, paymentData = null, cre
 
     return { deliveryId, paymentId: newPayDocId };
   });
+
+  // Create notifications for Super Admin
+  try {
+    await createNotification({
+      type: "DELIVERY_CREATED",
+      title: `New Delivery #${result.deliveryId} Created`,
+      lines: [
+        `Customer: ${deliveryData.customerName}`,
+        `Product: ${deliveryData.productName}`,
+        `Driver: ${deliveryData.driverName || "Unassigned"}`,
+      ],
+      deliveryId: result.deliveryId,
+      createdBy: creator?.uid || creator?.id,
+      createdByName: creator?.name || "Staff",
+      recipientRole: "Super Admin",
+    });
+
+    if (paymentData && Number(paymentData.amount) > 0) {
+      await createNotification({
+        type: "PAYMENT_RECORDED",
+        title: `Driver Payment Recorded for #${result.deliveryId}`,
+        lines: [
+          `Amount: ₹${paymentData.amount}`,
+          `Driver: ${deliveryData.driverName || "Driver"}`,
+          `Mode: ${paymentData.paymentMode || "Cash"}`,
+        ],
+        deliveryId: result.deliveryId,
+        createdBy: creator?.uid || creator?.id,
+        createdByName: creator?.name || "Staff",
+        recipientRole: "Super Admin",
+      });
+    }
+  } catch (notifErr) {
+    console.warn("Could not dispatch delivery notification:", notifErr);
+  }
+
+  return result;
 }
 
 export async function updateDeliveryStatusWithTx({
