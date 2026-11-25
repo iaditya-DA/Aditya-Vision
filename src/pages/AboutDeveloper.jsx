@@ -14,7 +14,7 @@ const ADITYA = {
 const ABHISHEK = {
   name: "Abhishek Kumar Jha",
   role: "Accountant",
-  company: "Aditya Vision Pvt Ltd",
+  company: "Aditya Vision Ltd",
   email: "",
   phone: "",
 };
