@@ -25,6 +25,7 @@ import SettingsPage from "../pages/settings/SettingsPage";
 import DataManagementPage from "../pages/settings/DataManagementPage";
 import VanSearchPage from "../pages/van/VanSearchPage";
 import VanAdminPage from "../pages/van/VanAdminPage";
+import AboutDeveloper from "../pages/AboutDeveloper";
 import AccessDenied from "../pages/AccessDenied";
 import NotFound from "../pages/NotFound";
 
@@ -318,6 +319,9 @@ const AppRoutes = () => {
             </PermissionRoute>
           }
         />
+
+        {/* ABOUT DEVELOPER */}
+        <Route path="/about-developer" element={<AboutDeveloper />} />
       </Route>
 
       {/* 404 Route */}

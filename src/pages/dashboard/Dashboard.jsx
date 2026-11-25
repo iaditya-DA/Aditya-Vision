@@ -7,9 +7,9 @@ import {
   Download,
   ArrowRight,
   Truck,
-  CheckCircle2,
-  Clock,
+  Users,
   AlertCircle,
+  Wallet,
   Loader2,
 } from "lucide-react";
 import DeliveriesTable from "../../components/deliveries/DeliveriesTable";
@@ -19,6 +19,7 @@ import { usePaymentStatus } from "../../hooks/usePaymentStatus";
 import { exportToCSV } from "../../utils/exportUtils";
 import { formatCurrency, formatDate } from "../../utils/formatters";
 import { getDeliveriesPaged, getDashboardKpiStats } from "../../services/deliveryService";
+import { getDriversPaged } from "../../services/driverService";
 
 const Dashboard = () => {
   const toast = useToast();
@@ -27,6 +28,7 @@ const Dashboard = () => {
   const { getPaymentStatus } = usePaymentStatus();
 
   const [deliveries, setDeliveries] = useState([]);
+  const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTableTab, setActiveTableTab] = useState("all");
   const [kpiStats, setKpiStats] = useState({
@@ -45,12 +47,17 @@ const Dashboard = () => {
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      const [paged, stats] = await Promise.all([
+      const [paged, stats, driversRes] = await Promise.all([
         getDeliveriesPaged({ pageSize: 30 }),
         getDashboardKpiStats(),
+        getDriversPaged({ pageSize: 100 }).catch((err) => {
+          console.warn("Could not load drivers for dashboard stats:", err);
+          return { drivers: [] };
+        }),
       ]);
       setDeliveries(paged.deliveries);
       setKpiStats(stats);
+      setDrivers(driversRes.drivers || []);
     } catch (err) {
       console.warn("Error loading dashboard data:", err);
       toast.error("Could not load latest dashboard metrics");
@@ -118,6 +125,79 @@ const Dashboard = () => {
     toast.success("Deliveries report CSV downloaded.");
   };
 
+  // 1. Total Deliveries & Delivered count
+  const totalDeliveriesCount = useMemo(() => {
+    const statusCountsSum = Object.values(kpiStats.statusCounts || {}).reduce(
+      (sum, val) => sum + (Number(val) || 0),
+      0
+    );
+    return statusCountsSum > 0 ? statusCountsSum : deliveries.length;
+  }, [kpiStats.statusCounts, deliveries.length]);
+
+  const deliveredDeliveriesCount = useMemo(() => {
+    if (kpiStats.statusCounts && typeof kpiStats.statusCounts["Delivered"] === "number") {
+      return kpiStats.statusCounts["Delivered"];
+    }
+    return deliveries.filter(
+      (d) => (d.status || "").trim().toLowerCase() === "delivered"
+    ).length;
+  }, [kpiStats.statusCounts, deliveries]);
+
+  // 2. Total Active Drivers (Rule: active only if 0 non-completed deliveries)
+  const { totalDriversCount, activeDriversCount } = useMemo(() => {
+    const busyDriverIds = new Set();
+
+    deliveries.forEach((d) => {
+      if (!d.driverId) return;
+      const status = (d.status || "").trim().toLowerCase();
+      // Every status other than delivered/completed and cancelled is "not completed"
+      const isCompleted =
+        status === "delivered" ||
+        status === "completed" ||
+        status === "cancelled";
+      if (!isCompleted) {
+        busyDriverIds.add(String(d.driverId));
+      }
+    });
+
+    const uniqueDriverIdsInDeliveries = new Set(
+      deliveries.map((d) => String(d.driverId)).filter(Boolean)
+    );
+    const totalCount =
+      drivers.length > 0 ? drivers.length : uniqueDriverIdsInDeliveries.size;
+
+    const activeCount =
+      drivers.length > 0
+        ? drivers.filter((driver) => !busyDriverIds.has(String(driver.id))).length
+        : Math.max(0, totalCount - busyDriverIds.size);
+
+    return {
+      totalDriversCount: totalCount,
+      activeDriversCount: activeCount,
+    };
+  }, [drivers, deliveries]);
+
+  // 4. Total Paid to Drivers & count of distinct drivers paid
+  const { totalPaidToDrivers, paidDriversCount } = useMemo(() => {
+    let totalPaid = 0;
+    const paidDriverIds = new Set();
+
+    deliveries.forEach((d) => {
+      const paid = Number(d.paymentSummary?.totalPaid) || 0;
+      if (paid > 0) {
+        totalPaid += paid;
+        if (d.driverId) {
+          paidDriverIds.add(String(d.driverId));
+        }
+      }
+    });
+
+    return {
+      totalPaidToDrivers: totalPaid,
+      paidDriversCount: paidDriverIds.size,
+    };
+  }, [deliveries]);
+
   return (
     <div className="relative z-10 space-y-6">
       {/* Greeting Header */}
@@ -133,59 +213,101 @@ const Dashboard = () => {
       </div>
 
       {/* KPI Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E5E7EB] shadow-2xs">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {/* Card 1: Total Deliveries */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-rose-100 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#6B7280]">Today&apos;s Deliveries</span>
+            <span className="text-xs font-semibold text-[#6B7280]">Total Deliveries</span>
             <div className="w-8 h-8 rounded-lg bg-blue-50 text-[#2563EB] flex items-center justify-center">
-              <Clock className="w-4 h-4" />
-            </div>
-          </div>
-          <p className="text-2xl sm:text-3xl font-extrabold text-[#202124] mt-2">
-            {kpiStats.todayCount}
-          </p>
-          <span className="text-[11px] text-[#6B7280] font-medium">Scheduled today</span>
-        </div>
-
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E5E7EB] shadow-2xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#6B7280]">In Transit</span>
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
               <Truck className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl sm:text-3xl font-extrabold text-[#202124] mt-2">
-            {kpiStats.inTransitCount}
-          </p>
-          <span className="text-[11px] text-[#6B7280] font-medium">Currently on the road</span>
+          {loading ? (
+            <div className="h-8 sm:h-9 w-24 bg-gray-200 animate-pulse rounded-md mt-2" />
+          ) : (
+            <p className="text-2xl sm:text-3xl font-extrabold text-[#202124] mt-2">
+              {totalDeliveriesCount}
+            </p>
+          )}
+          {loading ? (
+            <div className="h-3.5 w-20 bg-gray-100 animate-pulse rounded-sm mt-1.5" />
+          ) : (
+            <span className="text-[11px] text-[#6B7280] font-medium mt-0.5 block">
+              {deliveredDeliveriesCount} delivered
+            </span>
+          )}
         </div>
 
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E5E7EB] shadow-2xs">
+        {/* Card 2: Total Active Drivers */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-rose-100 shadow-2xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-[#6B7280]">Total Active Drivers</span>
+            <div className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
+              <Users className="w-4 h-4" />
+            </div>
+          </div>
+          {loading ? (
+            <div className="h-8 sm:h-9 w-24 bg-gray-200 animate-pulse rounded-md mt-2" />
+          ) : (
+            <p className="text-2xl sm:text-3xl font-extrabold text-[#202124] mt-2">
+              {activeDriversCount}
+            </p>
+          )}
+          {loading ? (
+            <div className="h-3.5 w-28 bg-gray-100 animate-pulse rounded-sm mt-1.5" />
+          ) : (
+            <span className="text-[11px] text-[#6B7280] font-medium mt-0.5 block">
+              Out of {totalDriversCount} {totalDriversCount === 1 ? "driver" : "drivers"}
+            </span>
+          )}
+        </div>
+
+        {/* Card 3: Payment Due */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-rose-100 shadow-2xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-[#6B7280]">Payment Due</span>
             <div className="w-8 h-8 rounded-lg bg-red-50 text-[#E53935] flex items-center justify-center">
               <AlertCircle className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl sm:text-3xl font-extrabold text-[#E53935] mt-2">
-            {formatCurrency(kpiStats.paymentDueAmount)}
-          </p>
-          <span className="text-[11px] text-[#6B7280] font-medium">
-            Across {kpiStats.paymentDueCount} deliveries
-          </span>
+          {loading ? (
+            <div className="h-8 sm:h-9 w-28 bg-gray-200 animate-pulse rounded-md mt-2" />
+          ) : (
+            <p className="text-2xl sm:text-3xl font-extrabold text-[#E53935] mt-2">
+              {formatCurrency(kpiStats.paymentDueAmount)}
+            </p>
+          )}
+          {loading ? (
+            <div className="h-3.5 w-32 bg-gray-100 animate-pulse rounded-sm mt-1.5" />
+          ) : (
+            <span className="text-[11px] text-[#6B7280] font-medium mt-0.5 block">
+              Across {kpiStats.paymentDueCount} deliveries
+            </span>
+          )}
         </div>
 
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E5E7EB] shadow-2xs">
+        {/* Card 4: Total Paid to Drivers */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-rose-100 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#6B7280]">Delivered (This Month)</span>
+            <span className="text-xs font-semibold text-[#6B7280]">Total Paid to Drivers</span>
             <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#16A34A] flex items-center justify-center">
-              <CheckCircle2 className="w-4 h-4" />
+              <Wallet className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl sm:text-3xl font-extrabold text-[#16A34A] mt-2">
-            {kpiStats.deliveredMonthCount}
-          </p>
-          <span className="text-[11px] text-[#6B7280] font-medium">Completed handovers</span>
+          {loading ? (
+            <div className="h-8 sm:h-9 w-28 bg-gray-200 animate-pulse rounded-md mt-2" />
+          ) : (
+            <p className="text-2xl sm:text-3xl font-extrabold text-[#16A34A] mt-2">
+              {formatCurrency(totalPaidToDrivers)}
+            </p>
+          )}
+          {loading ? (
+            <div className="h-3.5 w-24 bg-gray-100 animate-pulse rounded-sm mt-1.5" />
+          ) : (
+            <span className="text-[11px] text-[#6B7280] font-medium mt-0.5 block">
+              To {paidDriversCount} {paidDriversCount === 1 ? "driver" : "drivers"}
+            </span>
+          )}
         </div>
       </div>
 

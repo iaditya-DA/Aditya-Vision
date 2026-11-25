@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from "react-router-dom";
 import Navbar from "../components/layout/Navbar";
 import BackgroundDecor from "../components/layout/BackgroundDecor";
+import DeveloperFooter from "../components/DeveloperFooter";
 
 const MainLayout = () => {
   const location = useLocation();
@@ -19,8 +20,11 @@ const MainLayout = () => {
       <Navbar />
 
       {/* Page Content */}
-      <main className="relative z-10 flex-1 p-4 sm:p-6 lg:p-8 max-w-[1600px] w-full mx-auto">
-        <Outlet />
+      <main className="relative z-10 flex-1 p-4 sm:p-6 lg:p-8 max-w-[1600px] w-full mx-auto flex flex-col">
+        <div className="flex-1">
+          <Outlet />
+        </div>
+        <DeveloperFooter />
       </main>
     </div>
   );
