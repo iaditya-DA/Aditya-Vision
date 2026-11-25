@@ -87,7 +87,7 @@ const AboutDeveloper = () => {
             Meet the Team
           </h1>
           <p className="mt-3 text-base sm:text-lg xl:text-xl text-gray-600 max-w-3xl mx-auto px-2">
-            Developed by Aditya Kumar Jha in collaboration with Abhishek Kumar Jha, Accountant at Aditya Vision Pvt Ltd
+            Developed by Aditya Kumar Jha in collaboration with Abhishek Kumar Jha, Accountant at Aditya Vision Ltd
           </p>
         </div>
 
@@ -106,7 +106,7 @@ const AboutDeveloper = () => {
                 architecture, API integration and responsive UI development.
               </p>
               <p>
-                Abhishek Kumar Jha, Accountant at Aditya Vision Pvt Ltd, contributed the
+                Abhishek Kumar Jha, Accountant at Aditya Vision Ltd, contributed the
                 business and accounting requirements, workflows and real-world feedback,
                 which made the software practical and business-ready.
               </p>
@@ -164,7 +164,7 @@ const AboutDeveloper = () => {
                 <span className="font-semibold text-gray-900">Aditya Kumar Jha</span> &ndash; Android Developer
               </p>
               <p className="text-xs sm:text-sm font-medium text-gray-700">
-                <span className="font-semibold text-gray-900">Abhishek Kumar Jha</span> &ndash; Accountant, Aditya Vision Pvt Ltd
+                <span className="font-semibold text-gray-900">Abhishek Kumar Jha</span> &ndash; Accountant, Aditya Vision Ltd
               </p>
             </div>
           </div>
@@ -319,7 +319,7 @@ const AboutDeveloper = () => {
         {/* Footer line */}
         <div className="mt-14 pt-8 border-t border-gray-100 text-center">
           <p className="text-gray-400 text-sm">
-            Developed by Aditya Kumar Jha in collaboration with Abhishek Kumar Jha, Accountant, Aditya Vision Pvt Ltd
+            Developed by Aditya Kumar Jha in collaboration with Abhishek Kumar Jha, Accountant, Aditya Vision Ltd
           </p>
         </div>
       </div>
