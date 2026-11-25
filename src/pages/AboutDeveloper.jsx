@@ -1,20 +1,34 @@
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Handshake } from "lucide-react";
 
-const EMAIL = "adityakrjhaa@gmail.com";
-const PHONE_DISPLAY = "+91 74920 01966";
-const PHONE_LINK = "tel:+917492001966";
-const LINKEDIN = "https://www.linkedin.com/in/adityakr-jha/";
-const INSTAGRAM = "https://www.instagram.com/adityakrjhaa/";
+const ADITYA = {
+  name: "Aditya Kumar Jha",
+  role: "Android Developer",
+  email: "adityakrjhaa@gmail.com",
+  phoneDisplay: "+91 74920 01966",
+  phoneLink: "tel:+917492001966",
+  linkedin: "https://www.linkedin.com/in/adityakr-jha/",
+  instagram: "https://www.instagram.com/adityakrjhaa/",
+};
 
-const whatIBuild = [
+const ABHISHEK = {
+  name: "Abhishek Kumar Jha",
+  role: "Accountant",
+  company: "Aditya Vision Pvt Ltd",
+  email: "",
+  phone: "",
+};
+
+const whatWeBuild = [
   {
     title: "Delivery Systems",
     desc: "Delivery tracking, driver assignment and payment management tools.",
+    tag: "Built by Aditya, guided by Abhishek's accounting insight",
   },
   {
     title: "CRM Software",
     desc: "Custom CRMs to manage customers, records and daily operations.",
+    tag: "Built by Aditya, guided by Abhishek's accounting insight",
   },
   {
     title: "Portfolio Websites",
@@ -40,8 +54,8 @@ const InstagramIcon = () => (
 
 const Detail = ({ label, children }) => (
   <div>
-    <p className="text-sm font-semibold text-gray-900">{label}</p>
-    <div className="text-[15px] text-gray-600 mt-0.5">{children}</div>
+    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</p>
+    <div className="text-sm font-medium text-gray-800 mt-0.5">{children}</div>
   </div>
 );
 
@@ -54,7 +68,7 @@ const AboutDeveloper = () => {
   };
 
   return (
-    <div className="w-full min-h-[calc(100vh-7rem)] flex flex-col px-6 sm:px-10 lg:px-8 xl:px-10 pb-12">
+    <div className="w-full min-h-[calc(100vh-7rem)] flex flex-col px-4 sm:px-6 lg:px-8 xl:px-10 pb-12">
       <div>
         <button
           type="button"
@@ -67,22 +81,24 @@ const AboutDeveloper = () => {
       </div>
 
       <div className="flex-1 flex flex-col justify-center w-full">
-        {/* Title */}
-        <div className="text-center">
-          <h1 className="text-4xl xl:text-5xl font-semibold text-gray-900">
-            Profile
+        {/* Title and Subtitle */}
+        <div className="text-center mt-2 sm:mt-0">
+          <h1 className="text-3xl sm:text-4xl xl:text-5xl font-semibold text-gray-900">
+            Meet the Team
           </h1>
-          <p className="mt-3 text-lg xl:text-xl text-gray-600">
-            Android Developer &middot; I build apps, CRMs and websites
+          <p className="mt-3 text-base sm:text-lg xl:text-xl text-gray-600 max-w-3xl mx-auto px-2">
+            Developed by Aditya Kumar Jha in collaboration with Abhishek Kumar Jha, Accountant at Aditya Vision Pvt Ltd
           </p>
         </div>
 
-        {/* 3 columns */}
-        <div className="mt-10 lg:mt-14 grid grid-cols-1 lg:grid-cols-[1.15fr_auto_0.85fr] gap-10 lg:gap-14 xl:gap-20 items-center">
-          {/* About me */}
-          <div className="order-2 lg:order-1 lg:pl-6 xl:pl-10">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">About me</h2>
-            <div className="space-y-3 text-[15px] xl:text-base leading-relaxed text-gray-600">
+        {/* 3 Columns: About the collaboration | Center photos | Details */}
+        <div className="mt-10 lg:mt-14 grid grid-cols-1 lg:grid-cols-[1.1fr_auto_0.9fr] gap-10 lg:gap-10 xl:gap-16 items-center">
+          {/* Column 1: About the collaboration */}
+          <div className="order-2 lg:order-1 lg:pl-4 xl:pl-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">
+              About the collaboration
+            </h2>
+            <div className="space-y-3.5 text-[15px] xl:text-base leading-relaxed text-gray-600">
               <p>
                 I&apos;m an Android Developer who builds scalable, high-performance
                 mobile applications using Kotlin, Java, Jetpack, Firebase, Retrofit
@@ -90,99 +106,185 @@ const AboutDeveloper = () => {
                 architecture, API integration and responsive UI development.
               </p>
               <p>
-                I focus on projects that emphasize efficiency, clean architecture
-                and user-centric design. I&apos;m known for strong execution,
-                adaptability and collaborative problem-solving across development
-                and team environments.
+                Abhishek Kumar Jha, Accountant at Aditya Vision Pvt Ltd, contributed the
+                business and accounting requirements, workflows and real-world feedback,
+                which made the software practical and business-ready.
+              </p>
+              <p className="font-semibold text-gray-900 pt-1">
+                Technology + accounting expertise = software that actually fits business needs.
               </p>
             </div>
           </div>
 
-          {/* Photo (slightly right of center) */}
-          <div className="order-1 lg:order-2 flex justify-center lg:translate-x-6 xl:translate-x-10">
-            <div className="w-56 h-56 sm:w-64 sm:h-64 xl:w-72 xl:h-72 rounded-full overflow-hidden bg-[#E5E5E7] shrink-0">
-              <img
-                src="/developer.jpg"
-                onError={(e) => {
-                  if (e.currentTarget.src.endsWith(".jpg")) {
-                    e.currentTarget.src = "/developer.jpeg";
-                  }
-                }}
-                className="w-full h-full object-cover"
-                style={{ objectPosition: "center 8%" }}
-                alt="Aditya Kumar Jha"
-              />
+          {/* Column 2: Center Photo Section (Overlapping Photos + Handshake Badge) */}
+          <div className="order-1 lg:order-2 flex flex-col items-center justify-center">
+            <div className="relative flex items-center justify-center py-2">
+              {/* Photo 1: Aditya */}
+              <div className="w-40 h-40 sm:w-48 sm:h-48 xl:w-56 xl:h-56 rounded-full overflow-hidden bg-[#E5E5E7] shrink-0 ring-4 ring-white shadow-md z-10">
+                <img
+                  src="/developer.jpg"
+                  onError={(e) => {
+                    if (e.currentTarget.src.endsWith(".jpg")) {
+                      e.currentTarget.src = "/developer.jpeg";
+                    }
+                  }}
+                  className="w-full h-full object-cover"
+                  style={{ objectPosition: "center 8%" }}
+                  alt="Aditya Kumar Jha"
+                />
+              </div>
+
+              {/* Central Handshake Badge */}
+              <div
+                className="absolute z-30 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white shadow-md flex items-center justify-center text-[#E53935] border border-gray-100"
+                title="Collaboration"
+              >
+                <Handshake className="w-5 h-5 sm:w-6 sm:h-6" />
+              </div>
+
+              {/* Photo 2: Abhishek */}
+              <div className="w-40 h-40 sm:w-48 sm:h-48 xl:w-56 xl:h-56 rounded-full overflow-hidden bg-[#E5E5E7] shrink-0 ring-4 ring-white shadow-md -ml-8 sm:-ml-10 xl:-ml-12 z-20">
+                <img
+                  src="/abhishek.jpg"
+                  onError={(e) => {
+                    if (e.currentTarget.src.endsWith(".jpg")) {
+                      e.currentTarget.src = "/abhishek.jpeg";
+                    }
+                  }}
+                  className="w-full h-full object-cover"
+                  style={{ objectPosition: "center 15%" }}
+                  alt="Abhishek Kumar Jha"
+                />
+              </div>
+            </div>
+
+            {/* Captions below the photos */}
+            <div className="mt-4 text-center space-y-1">
+              <p className="text-xs sm:text-sm font-medium text-gray-700">
+                <span className="font-semibold text-gray-900">Aditya Kumar Jha</span> &ndash; Android Developer
+              </p>
+              <p className="text-xs sm:text-sm font-medium text-gray-700">
+                <span className="font-semibold text-gray-900">Abhishek Kumar Jha</span> &ndash; Accountant, Aditya Vision Pvt Ltd
+              </p>
             </div>
           </div>
 
-          {/* Details (pushed to the right edge) */}
-          <div className="order-3 lg:justify-self-end lg:pr-6 xl:pr-10 lg:w-full lg:max-w-[340px]">
+          {/* Column 3: Right Column Details */}
+          <div className="order-3 lg:justify-self-end lg:pr-4 xl:pr-8 lg:w-full lg:max-w-[340px]">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Details</h2>
-            <div className="space-y-4">
-              <Detail label="Name:">Aditya Kumar Jha</Detail>
-              <Detail label="Role:">Android Developer</Detail>
-              <Detail label="Email:">
-                <a
-                  href={`mailto:${EMAIL}`}
-                  className="hover:text-[#E53935] transition-colors break-all"
-                >
-                  {EMAIL}
-                </a>
-              </Detail>
-              <Detail label="Phone:">
-                <a
-                  href={PHONE_LINK}
-                  className="hover:text-[#E53935] transition-colors"
-                >
-                  {PHONE_DISPLAY}
-                </a>
-              </Detail>
-            </div>
 
-            <div className="flex items-center gap-4 mt-5 text-gray-900">
-              <a
-                href={LINKEDIN}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="LinkedIn"
-                className="hover:text-[#E53935] transition-colors"
-              >
-                <LinkedInIcon />
-              </a>
-              <a
-                href={INSTAGRAM}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Instagram"
-                className="hover:text-[#E53935] transition-colors"
-              >
-                <InstagramIcon />
-              </a>
+            <div className="space-y-6">
+              {/* Developer Block */}
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#E53935] mb-2.5">
+                  Developer
+                </h3>
+                <div className="space-y-2.5">
+                  <Detail label="Name">{ADITYA.name}</Detail>
+                  <Detail label="Role">{ADITYA.role}</Detail>
+                  <Detail label="Email">
+                    <a
+                      href={`mailto:${ADITYA.email}`}
+                      className="hover:text-[#E53935] transition-colors break-all"
+                    >
+                      {ADITYA.email}
+                    </a>
+                  </Detail>
+                  <Detail label="Phone">
+                    <a
+                      href={ADITYA.phoneLink}
+                      className="hover:text-[#E53935] transition-colors"
+                    >
+                      {ADITYA.phoneDisplay}
+                    </a>
+                  </Detail>
+                </div>
+
+                <div className="flex items-center gap-4 mt-3 text-gray-900">
+                  <a
+                    href={ADITYA.linkedin}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="LinkedIn"
+                    className="hover:text-[#E53935] transition-colors"
+                  >
+                    <LinkedInIcon />
+                  </a>
+                  <a
+                    href={ADITYA.instagram}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Instagram"
+                    className="hover:text-[#E53935] transition-colors"
+                  >
+                    <InstagramIcon />
+                  </a>
+                </div>
+              </div>
+
+              {/* Collaborator Block */}
+              <div className="pt-4 border-t border-gray-100">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2.5">
+                  Collaborator
+                </h3>
+                <div className="space-y-2.5">
+                  <Detail label="Name">{ABHISHEK.name}</Detail>
+                  <Detail label="Role">{ABHISHEK.role}</Detail>
+                  <Detail label="Company">{ABHISHEK.company}</Detail>
+                  {ABHISHEK.email && (
+                    <Detail label="Email">
+                      <a
+                        href={`mailto:${ABHISHEK.email}`}
+                        className="hover:text-[#E53935] transition-colors break-all"
+                      >
+                        {ABHISHEK.email}
+                      </a>
+                    </Detail>
+                  )}
+                  {ABHISHEK.phone && (
+                    <Detail label="Phone">
+                      <a
+                        href={`tel:${ABHISHEK.phone}`}
+                        className="hover:text-[#E53935] transition-colors"
+                      >
+                        {ABHISHEK.phone}
+                      </a>
+                    </Detail>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* What I build */}
+        {/* What we build */}
         <div className="mt-14 lg:mt-20 lg:px-6 xl:px-10">
           <h2 className="text-center text-2xl xl:text-3xl font-semibold text-gray-900">
-            What I build
+            What we build
           </h2>
           <p className="mt-2 text-center text-base text-gray-600">
             Software that solves real business problems.
           </p>
 
           <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-10">
-            {whatIBuild.map((item, i) => (
-              <div key={item.title}>
-                <p className="text-sm font-semibold text-gray-400 tabular-nums">
-                  {String(i + 1).padStart(2, "0")}
-                </p>
-                <h3 className="mt-1.5 text-lg font-semibold text-gray-900">
-                  {item.title}
-                </h3>
-                <p className="mt-1.5 text-[15px] leading-relaxed text-gray-600">
-                  {item.desc}
-                </p>
+            {whatWeBuild.map((item, i) => (
+              <div key={item.title} className="flex flex-col justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-gray-400 tabular-nums">
+                    {String(i + 1).padStart(2, "0")}
+                  </p>
+                  <h3 className="mt-1.5 text-lg font-semibold text-gray-900">
+                    {item.title}
+                  </h3>
+                  <p className="mt-1.5 text-[15px] leading-relaxed text-gray-600">
+                    {item.desc}
+                  </p>
+                </div>
+                {item.tag && (
+                  <p className="mt-3 text-xs text-gray-500 italic border-t border-gray-100 pt-2">
+                    {item.tag}
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -195,23 +297,30 @@ const AboutDeveloper = () => {
           </h2>
           <p className="mt-2 text-base xl:text-lg text-gray-600 max-w-2xl mx-auto">
             Whether it&apos;s an app, a CRM, a delivery system or a portfolio
-            website, give me a chance to work on it and I will deliver it with
+            website, give us a chance to work on it and we will deliver it with
             quality.
           </p>
           <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
             <a
-              href={`mailto:${EMAIL}?subject=Project%20Opportunity`}
+              href={`mailto:${ADITYA.email}?subject=Project%20Opportunity`}
               className="inline-flex items-center h-11 px-7 rounded-lg bg-[#E53935] text-white text-sm font-medium hover:bg-[#D32F2F] transition-colors"
             >
-              Hire me
+              Hire us
             </a>
             <a
-              href={PHONE_LINK}
+              href={ADITYA.phoneLink}
               className="inline-flex items-center h-11 px-7 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
             >
-              Call me
+              Call us
             </a>
           </div>
+        </div>
+
+        {/* Footer line */}
+        <div className="mt-14 pt-8 border-t border-gray-100 text-center">
+          <p className="text-gray-400 text-sm">
+            Developed by Aditya Kumar Jha in collaboration with Abhishek Kumar Jha, Accountant, Aditya Vision Pvt Ltd
+          </p>
         </div>
       </div>
     </div>
