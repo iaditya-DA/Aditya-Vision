@@ -3,7 +3,14 @@ import { useNavigate, Navigate } from "react-router-dom";
 import { Eye, EyeOff, Loader2, ShieldAlert, X } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 
-const EMOJI_REGEX = /[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\uFE0E\uFE0F\u200D\u20E3]/gu;
+// Regex matching Unicode extended pictographic emojis, flags, skin tone modifiers, and combining joiners/selectors
+// eslint-disable-next-line no-misleading-character-class
+const EMOJI_PATTERN = /[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\uFE0E\uFE0F\u200D\u20E3]/u;
+// eslint-disable-next-line no-misleading-character-class
+const EMOJI_GLOBAL_PATTERN = /[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\uFE0E\uFE0F\u200D\u20E3]/gu;
+
+const hasEmoji = (str) => EMOJI_PATTERN.test(str);
+const stripEmojis = (str) => str.replace(EMOJI_GLOBAL_PATTERN, "");
 
 const Login = () => {
   const navigate = useNavigate();
@@ -28,7 +35,7 @@ const Login = () => {
 
     if (!trimmed) {
       errs.mobile = "Please enter your registered mobile number";
-    } else if (EMOJI_REGEX.test(trimmed)) {
+    } else if (hasEmoji(trimmed)) {
       errs.mobile = "Emojis are not permitted in this field";
     }
 
@@ -125,15 +132,15 @@ const Login = () => {
                 spellCheck={false}
                 value={mobile}
                 onKeyDown={(e) => {
-                  if (e.key && EMOJI_REGEX.test(e.key)) {
+                  if (e.key && hasEmoji(e.key)) {
                     e.preventDefault();
                   }
                 }}
                 onPaste={(e) => {
                   const pasteText = e.clipboardData?.getData("text") || "";
-                  if (EMOJI_REGEX.test(pasteText)) {
+                  if (hasEmoji(pasteText)) {
                     e.preventDefault();
-                    const cleaned = pasteText.replace(EMOJI_REGEX, "");
+                    const cleaned = stripEmojis(pasteText);
                     const target = e.target;
                     const start = target.selectionStart || 0;
                     const end = target.selectionEnd || 0;
@@ -144,7 +151,7 @@ const Login = () => {
                   }
                 }}
                 onChange={(e) => {
-                  const sanitized = e.target.value.replace(EMOJI_REGEX, "");
+                  const sanitized = stripEmojis(e.target.value);
                   setMobile(sanitized);
                   if (errors.mobile) setErrors((prev) => ({ ...prev, mobile: "" }));
                   if (localError) setLocalError("");
