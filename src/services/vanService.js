@@ -905,6 +905,123 @@ export async function removeCompanyVanData(companyKey) {
   await deleteDoc(companyRef);
 }
 
+const GENERIC_ANCHOR_WORDS = new Set([
+  "MOBILE",
+  "PHONE",
+  "PHONES",
+  "5G",
+  "4G",
+  "3G",
+  "2G",
+  "GB",
+  "MB",
+  "TB",
+  "PRO",
+  "PLUS",
+  "MAX",
+  "ULTRA",
+  "LTD",
+  "PVT",
+  "INDIA",
+  "SERIES",
+  "NEW",
+  "COLOR",
+  "COLOUR",
+  "WITH",
+]);
+
+const BRAND_ANCHOR_WORDS = new Set([
+  "OPPO",
+  "SAMSUNG",
+  "APPLE",
+  "IPHONE",
+  "VIVO",
+  "MOTOROLA",
+  "MOTO",
+  "XIAOMI",
+  "XIOMI",
+  "REALME",
+  "REDMI",
+  "ONEPLUS",
+  "WHIRLPOOL",
+  "GODREJ",
+  "LLOYD",
+  "SONY",
+  "LG",
+  "IFB",
+  "DELL",
+  "HP",
+  "LENOVO",
+  "ASUS",
+  "ACER",
+]);
+
+function getCandidateAnchors(words, comp) {
+  const compNameUpper = (comp?.name || "").toUpperCase();
+  const compKeyUpper = (comp?.key || "").toUpperCase();
+
+  const candidates = words
+    .map((rawWord) => {
+      const upper = rawWord.toUpperCase();
+      const clean = upper.replace(/^[^A-Z0-9]+|[^A-Z0-9]+$/g, "");
+      if (!clean || clean.length < 2) return null;
+
+      let score = 0;
+      const isGeneric =
+        GENERIC_ANCHOR_WORDS.has(clean) ||
+        BRAND_ANCHOR_WORDS.has(clean) ||
+        compNameUpper.includes(clean) ||
+        compKeyUpper.includes(clean);
+
+      const hasMix = /[A-Z]/.test(clean) && /[0-9]/.test(clean);
+      const isPureMemory = /^\d+[/+\-_]\d+$/.test(upper) || /^\d+$/.test(clean);
+
+      if (isGeneric) score -= 100;
+      if (isPureMemory) score -= 50;
+      if (hasMix) score += 50;
+      score += clean.length * 2;
+
+      return { word: clean, score };
+    })
+    .filter(Boolean);
+
+  candidates.sort((a, b) => b.score - a.score);
+
+  const seen = new Set();
+  const result = [];
+  for (const c of candidates) {
+    if (!seen.has(c.word)) {
+      seen.add(c.word);
+      result.push(c.word);
+    }
+  }
+
+  if (result.length === 0) {
+    words.forEach((w) => {
+      const c = w.toUpperCase().replace(/^[^A-Z0-9]+|[^A-Z0-9]+$/g, "");
+      if (c && !seen.has(c)) {
+        seen.add(c);
+        result.push(c);
+      }
+    });
+  }
+
+  return result;
+}
+
+function normalizeForSearchMatch(str) {
+  return String(str || "")
+    .toUpperCase()
+    .replace(/[/\-.+\s]/g, "");
+}
+
+function itemMatchesWord(rawWord, normWord, normItemAll, rawItemAll) {
+  if (!normWord) return true;
+  if (normItemAll.includes(normWord)) return true;
+  if (rawWord && rawItemAll.includes(rawWord)) return true;
+  return false;
+}
+
 /**
  * Searches across active companies in parallel
  * Queries active company catalogs by modelKey, any token word, or item code
@@ -913,9 +1030,12 @@ export async function searchVanItems(rawQuery, companies = []) {
   const queryStr = String(rawQuery || "").trim();
   if (!queryStr || queryStr.length < 2) return [];
 
+  const rawWords = queryStr.split(/\s+/).filter(Boolean);
+  const upperWords = rawWords.map((w) => w.toUpperCase());
+  const normWords = upperWords.map((w) => normalizeForSearchMatch(w));
+
   const modelKeyQuery = extractModelKey(queryStr);
   const digitsQuery = normalizeItemCode(queryStr);
-  const upperTokenQuery = queryStr.toUpperCase();
 
   const targetCompanies = companies.filter((c) => c.activeUploadId).slice(0, 20);
 
@@ -924,10 +1044,10 @@ export async function searchVanItems(rawQuery, companies = []) {
     const seen = new Set();
     const itemsCol = collection(db, "vanUploads", comp.activeUploadId, "items");
 
-    // 1. Exact lookup on modelKey (query without requiring duplicate document writes)
+    // 1. Exact lookup on modelKey (limit 20)
     if (modelKeyQuery) {
       try {
-        const qExact = query(itemsCol, where("modelKey", "==", modelKeyQuery), fsLimit(5));
+        const qExact = query(itemsCol, where("modelKey", "==", modelKeyQuery), fsLimit(20));
         const exactSnap = await getDocs(qExact);
         exactSnap.docs.forEach((d) => {
           const data = d.data();
@@ -941,13 +1061,13 @@ export async function searchVanItems(rawQuery, companies = []) {
         console.warn(`Exact query error for company ${comp.name}:`, err);
       }
 
-      // 2. Prefix query on modelKey (limit 8 per company)
+      // 2. Prefix query on modelKey (limit 50 per company)
       try {
         const qModel = query(
           itemsCol,
           where("modelKey", ">=", modelKeyQuery),
           where("modelKey", "<=", modelKeyQuery + "\uf8ff"),
-          fsLimit(8)
+          fsLimit(50)
         );
         const snap = await getDocs(qModel);
         snap.docs.forEach((d) => {
@@ -963,13 +1083,20 @@ export async function searchVanItems(rawQuery, companies = []) {
       }
     }
 
-    // 3. Search by searchTokens (array-contains for any word like "CASSETTE", "SGBT3PB")
-    if (upperTokenQuery.length >= 2) {
+    // 3. Search by searchTokens (array-contains, limit 100)
+    // For multi-word queries, use candidate anchors with fallback
+    const candidateAnchors =
+      upperWords.length > 1
+        ? getCandidateAnchors(upperWords, comp)
+        : [upperWords[0]?.replace(/^[^A-Z0-9]+|[^A-Z0-9]+$/g, "") || upperWords[0] || ""];
+
+    for (const anchor of candidateAnchors) {
+      if (!anchor || anchor.length < 2) continue;
       try {
         const qToken = query(
           itemsCol,
-          where("searchTokens", "array-contains", upperTokenQuery),
-          fsLimit(8)
+          where("searchTokens", "array-contains", anchor),
+          fsLimit(100)
         );
         const snap = await getDocs(qToken);
         snap.docs.forEach((d) => {
@@ -980,15 +1107,19 @@ export async function searchVanItems(rawQuery, companies = []) {
             results.push({ id: d.id, ...data });
           }
         });
+        if (snap.docs.length > 0) {
+          // Found results for top anchor, do not fall back
+          break;
+        }
       } catch (err) {
-        console.warn(`Token search error for company ${comp.name}:`, err);
+        console.warn(`Token search error for company ${comp.name} anchor ${anchor}:`, err);
       }
     }
 
-    // 4. If query contains digits, also query by itemCode
+    // 4. If query contains digits, also query by itemCode (limit 20)
     if (/^\d{3,12}$/.test(digitsQuery)) {
       try {
-        const qCode = query(itemsCol, where("itemCode", "==", digitsQuery), fsLimit(8));
+        const qCode = query(itemsCol, where("itemCode", "==", digitsQuery), fsLimit(20));
         const codeSnap = await getDocs(qCode);
         codeSnap.docs.forEach((d) => {
           const data = d.data();
@@ -1018,5 +1149,45 @@ export async function searchVanItems(rawQuery, companies = []) {
     }
   });
 
-  return Array.from(uniqueMap.values());
+  const deduplicated = Array.from(uniqueMap.values());
+
+  // In-memory filter and ranking:
+  // Every item is checked against EVERY query word.
+  const fullMatches = [];
+  const otherMatches = [];
+
+  deduplicated.forEach((item) => {
+    const rawItemAll = [
+      item.description,
+      item.modelNumber,
+      item.modelKey,
+      String(item.itemCode || ""),
+      item.brand,
+      item.category,
+      Array.isArray(item.searchTokens) ? item.searchTokens.join(" ") : "",
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toUpperCase();
+
+    const normItemAll = rawItemAll.replace(/[/\-.+\s]/g, "");
+
+    const matchesAll = upperWords.every((w, idx) =>
+      itemMatchesWord(w, normWords[idx], normItemAll, rawItemAll)
+    );
+
+    if (matchesAll) {
+      fullMatches.push(item);
+    } else {
+      otherMatches.push(item);
+    }
+  });
+
+  // For multi-word queries: if fullMatches exist, keep only fullMatches
+  // For single-word queries: do not drop any results, keep fullMatches first then otherMatches
+  if (upperWords.length > 1) {
+    return fullMatches.length > 0 ? fullMatches : otherMatches;
+  }
+
+  return [...fullMatches, ...otherMatches];
 }
