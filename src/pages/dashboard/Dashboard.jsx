@@ -213,101 +213,125 @@ const Dashboard = () => {
       </div>
 
       {/* KPI Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 sm:gap-4">
         {/* Card 1: Total Deliveries */}
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-rose-100 shadow-2xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#6B7280]">Total Deliveries</span>
-            <div className="w-8 h-8 rounded-lg bg-blue-50 text-[#2563EB] flex items-center justify-center">
-              <Truck className="w-4 h-4" />
+        <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-rose-100 shadow-2xs flex flex-col justify-between h-full">
+          <div>
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-xs font-semibold text-[#6B7280] leading-tight">
+                Total Deliveries
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-blue-50 text-[#2563EB] flex items-center justify-center shrink-0">
+                <Truck className="w-4 h-4" />
+              </div>
             </div>
+            {loading ? (
+              <div className="h-7 sm:h-9 w-16 sm:w-24 bg-gray-200 animate-pulse rounded-md mt-2" />
+            ) : (
+              <p className="text-2xl sm:text-3xl font-extrabold text-[#202124] mt-2 tracking-tight">
+                {totalDeliveriesCount}
+              </p>
+            )}
           </div>
-          {loading ? (
-            <div className="h-8 sm:h-9 w-24 bg-gray-200 animate-pulse rounded-md mt-2" />
-          ) : (
-            <p className="text-2xl sm:text-3xl font-extrabold text-[#202124] mt-2">
-              {totalDeliveriesCount}
-            </p>
-          )}
-          {loading ? (
-            <div className="h-3.5 w-20 bg-gray-100 animate-pulse rounded-sm mt-1.5" />
-          ) : (
-            <span className="text-[11px] text-[#6B7280] font-medium mt-0.5 block">
-              {deliveredDeliveriesCount} delivered
-            </span>
-          )}
+          <div className="mt-1">
+            {loading ? (
+              <div className="h-3.5 w-16 bg-gray-100 animate-pulse rounded-sm mt-1" />
+            ) : (
+              <span className="text-[11px] sm:text-xs text-[#6B7280] font-medium block truncate">
+                {deliveredDeliveriesCount} delivered
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Card 2: Total Active Drivers */}
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-rose-100 shadow-2xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#6B7280]">Total Active Drivers</span>
-            <div className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
-              <Users className="w-4 h-4" />
+        <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-rose-100 shadow-2xs flex flex-col justify-between h-full">
+          <div>
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-xs font-semibold text-[#6B7280] leading-tight">
+                Total Active Drivers
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
+                <Users className="w-4 h-4" />
+              </div>
             </div>
+            {loading ? (
+              <div className="h-7 sm:h-9 w-16 sm:w-24 bg-gray-200 animate-pulse rounded-md mt-2" />
+            ) : (
+              <p className="text-2xl sm:text-3xl font-extrabold text-[#202124] mt-2 tracking-tight">
+                {activeDriversCount}
+              </p>
+            )}
           </div>
-          {loading ? (
-            <div className="h-8 sm:h-9 w-24 bg-gray-200 animate-pulse rounded-md mt-2" />
-          ) : (
-            <p className="text-2xl sm:text-3xl font-extrabold text-[#202124] mt-2">
-              {activeDriversCount}
-            </p>
-          )}
-          {loading ? (
-            <div className="h-3.5 w-28 bg-gray-100 animate-pulse rounded-sm mt-1.5" />
-          ) : (
-            <span className="text-[11px] text-[#6B7280] font-medium mt-0.5 block">
-              Out of {totalDriversCount} {totalDriversCount === 1 ? "driver" : "drivers"}
-            </span>
-          )}
+          <div className="mt-1">
+            {loading ? (
+              <div className="h-3.5 w-20 bg-gray-100 animate-pulse rounded-sm mt-1" />
+            ) : (
+              <span className="text-[11px] sm:text-xs text-[#6B7280] font-medium block truncate">
+                Out of {totalDriversCount} {totalDriversCount === 1 ? "driver" : "drivers"}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Card 3: Payment Due */}
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-rose-100 shadow-2xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#6B7280]">Payment Due</span>
-            <div className="w-8 h-8 rounded-lg bg-red-50 text-[#E53935] flex items-center justify-center">
-              <AlertCircle className="w-4 h-4" />
+        <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-rose-100 shadow-2xs flex flex-col justify-between h-full">
+          <div>
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-xs font-semibold text-[#6B7280] leading-tight">
+                Payment Due
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-red-50 text-[#E53935] flex items-center justify-center shrink-0">
+                <AlertCircle className="w-4 h-4" />
+              </div>
             </div>
+            {loading ? (
+              <div className="h-7 sm:h-9 w-20 sm:w-28 bg-gray-200 animate-pulse rounded-md mt-2" />
+            ) : (
+              <p className="text-2xl sm:text-3xl font-extrabold text-[#E53935] mt-2 tracking-tight">
+                {formatCurrency(kpiStats.paymentDueAmount)}
+              </p>
+            )}
           </div>
-          {loading ? (
-            <div className="h-8 sm:h-9 w-28 bg-gray-200 animate-pulse rounded-md mt-2" />
-          ) : (
-            <p className="text-2xl sm:text-3xl font-extrabold text-[#E53935] mt-2">
-              {formatCurrency(kpiStats.paymentDueAmount)}
-            </p>
-          )}
-          {loading ? (
-            <div className="h-3.5 w-32 bg-gray-100 animate-pulse rounded-sm mt-1.5" />
-          ) : (
-            <span className="text-[11px] text-[#6B7280] font-medium mt-0.5 block">
-              Across {kpiStats.paymentDueCount} deliveries
-            </span>
-          )}
+          <div className="mt-1">
+            {loading ? (
+              <div className="h-3.5 w-24 bg-gray-100 animate-pulse rounded-sm mt-1" />
+            ) : (
+              <span className="text-[11px] sm:text-xs text-[#6B7280] font-medium block truncate">
+                Across {kpiStats.paymentDueCount} deliveries
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Card 4: Total Paid to Drivers */}
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-rose-100 shadow-2xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#6B7280]">Total Paid to Drivers</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#16A34A] flex items-center justify-center">
-              <Wallet className="w-4 h-4" />
+        <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-rose-100 shadow-2xs flex flex-col justify-between h-full">
+          <div>
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-xs font-semibold text-[#6B7280] leading-tight">
+                Total Paid to Drivers
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#16A34A] flex items-center justify-center shrink-0">
+                <Wallet className="w-4 h-4" />
+              </div>
             </div>
+            {loading ? (
+              <div className="h-7 sm:h-9 w-20 sm:w-28 bg-gray-200 animate-pulse rounded-md mt-2" />
+            ) : (
+              <p className="text-2xl sm:text-3xl font-extrabold text-[#16A34A] mt-2 tracking-tight">
+                {formatCurrency(totalPaidToDrivers)}
+              </p>
+            )}
           </div>
-          {loading ? (
-            <div className="h-8 sm:h-9 w-28 bg-gray-200 animate-pulse rounded-md mt-2" />
-          ) : (
-            <p className="text-2xl sm:text-3xl font-extrabold text-[#16A34A] mt-2">
-              {formatCurrency(totalPaidToDrivers)}
-            </p>
-          )}
-          {loading ? (
-            <div className="h-3.5 w-24 bg-gray-100 animate-pulse rounded-sm mt-1.5" />
-          ) : (
-            <span className="text-[11px] text-[#6B7280] font-medium mt-0.5 block">
-              To {paidDriversCount} {paidDriversCount === 1 ? "driver" : "drivers"}
-            </span>
-          )}
+          <div className="mt-1">
+            {loading ? (
+              <div className="h-3.5 w-16 bg-gray-100 animate-pulse rounded-sm mt-1" />
+            ) : (
+              <span className="text-[11px] sm:text-xs text-[#6B7280] font-medium block truncate">
+                To {paidDriversCount} {paidDriversCount === 1 ? "driver" : "drivers"}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
